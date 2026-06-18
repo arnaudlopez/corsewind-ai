@@ -1,0 +1,36 @@
+{
+  "format": "corsewind.fasteddy_benchmark.config.v1",
+  "fasteddy": {
+    "repository": "https://github.com/NCAR/FastEddy-model",
+    "documentation": "https://fasteddy-model.readthedocs.io/",
+    "license": "Apache-2.0",
+    "model_class": "resident-GPU large-eddy simulation atmospheric boundary layer model"
+  },
+  "defaults": {
+    "lead_hour": 0,
+    "horizontal_resolution_m": 50,
+    "vertical_cell_m": 10,
+    "vertical_levels": 60,
+    "output_height_m": 10,
+    "timesteps": 1200,
+    "dt_s": 0.05,
+    "output_frequency_steps": 1200,
+    "mpi_ranks": 1
+  },
+  "zones": [
+    {
+      "id": "ajaccio_bay",
+      "label": "Ajaccio bay FastEddy smoke benchmark",
+      "center_wgs84": [8.77, 41.90],
+      "size_km": [12, 10],
+      "purpose": "Early GPU LES feasibility check over the bay, airport, shoreline and local relief."
+    },
+    {
+      "id": "bonifacio",
+      "label": "Bonifacio FastEddy smoke benchmark",
+      "center_wgs84": [9.17, 41.39],
+      "size_km": [12, 10],
+      "purpose": "Early GPU LES feasibility check over cliffs, strait effects and coastal acceleration zones."
+    }
+  ]
+}
