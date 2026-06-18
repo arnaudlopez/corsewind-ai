@@ -32,6 +32,7 @@ docs/
   forecast_update_engine.md
   qes_winds_benchmark.md
   fasteddy_benchmark.md
+  fasteddy_arome_coupling_poc.md
 ```
 
 ## Setup
@@ -116,3 +117,5 @@ See `docs/forecast_update_engine.md` for the full update process, selected forec
 See `docs/qes_winds_benchmark.md` for the optional QES-Winds GPU benchmark against the current WindNinja 50 m pipeline on Ajaccio and Bonifacio test zones.
 
 See `docs/fasteddy_benchmark.md` for the optional FastEddy GPU LES smoke benchmark on the same Ajaccio and Bonifacio zones.
+
+See `docs/fasteddy_arome_coupling_poc.md` for the AROME 3D inventory and parent-data POC required before FastEddy can be evaluated as a serious forecast engine.

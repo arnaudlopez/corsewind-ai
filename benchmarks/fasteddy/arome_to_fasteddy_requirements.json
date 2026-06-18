@@ -1,0 +1,96 @@
+{
+  "format": "corsewind.fasteddy_arome_requirements.v1",
+  "objective": "Define the minimum AROME parent-model fields required for a credible FastEddy coupling.",
+  "target": {
+    "model": "FastEddy",
+    "mode": "real-data nested LES / ICBC workflow",
+    "test_zone": "Ajaccio bay",
+    "default_bbox_wgs84": [8.62, 41.82, 8.9, 42.0],
+    "default_lead_hours": [0],
+    "preferred_product": "arome",
+    "preferred_resolution": "001"
+  },
+  "requirements": [
+    {
+      "id": "u_wind_3d",
+      "priority": "required",
+      "role": "3D initial and lateral boundary U component",
+      "coverage_patterns": ["U_COMPONENT_OF_WIND"],
+      "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "fallback_patterns": ["U_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
+      "notes": "10 m U is not sufficient for production FastEddy; it is only a fallback for diagnostics."
+    },
+    {
+      "id": "v_wind_3d",
+      "priority": "required",
+      "role": "3D initial and lateral boundary V component",
+      "coverage_patterns": ["V_COMPONENT_OF_WIND"],
+      "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "fallback_patterns": ["V_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
+      "notes": "Must align exactly with U levels and times."
+    },
+    {
+      "id": "w_wind_3d",
+      "priority": "desired",
+      "role": "Vertical velocity for parent consistency and diagnostics",
+      "coverage_patterns": ["VERTICAL_VELOCITY", "W_COMPONENT_OF_WIND", "GEOMETRIC_VERTICAL_VELOCITY"],
+      "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "fallback_patterns": [],
+      "notes": "Can be initialized to zero for an early POC, but that weakens vertical-flow realism."
+    },
+    {
+      "id": "temperature_3d",
+      "priority": "required",
+      "role": "Potential-temperature/base-state construction and stability",
+      "coverage_patterns": ["TEMPERATURE", "POTENTIAL_TEMPERATURE"],
+      "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "fallback_patterns": ["TEMPERATURE__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
+      "notes": "Required to avoid a purely neutral/idealized LES."
+    },
+    {
+      "id": "humidity_3d",
+      "priority": "required",
+      "role": "Moisture state for realistic boundary-layer behavior",
+      "coverage_patterns": ["SPECIFIC_HUMIDITY", "RELATIVE_HUMIDITY", "DEWPOINT", "DEW_POINT"],
+      "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "fallback_patterns": ["RELATIVE_HUMIDITY__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
+      "notes": "Specific humidity is preferred; relative humidity requires conversion using temperature/pressure."
+    },
+    {
+      "id": "pressure_or_height_3d",
+      "priority": "required",
+      "role": "Vertical coordinate conversion to FastEddy z levels",
+      "coverage_patterns": ["PRESSURE", "GEOPOTENTIAL", "GEOPOTENTIAL_HEIGHT"],
+      "level_patterns": ["SURFACE", "ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL", "SURFACE_PRESSURE"],
+      "notes": "Needed to map pressure/model levels onto height above terrain."
+    },
+    {
+      "id": "surface_temperature",
+      "priority": "desired",
+      "role": "Surface thermal forcing",
+      "coverage_patterns": ["SURFACE_TEMPERATURE", "SKIN_TEMPERATURE", "TEMPERATURE"],
+      "level_patterns": ["SURFACE", "GROUND"],
+      "fallback_patterns": ["TEMPERATURE__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
+      "notes": "Useful for coastal sea/land thermal contrast."
+    },
+    {
+      "id": "surface_pressure",
+      "priority": "desired",
+      "role": "Hydrostatic/base-state consistency",
+      "coverage_patterns": ["SURFACE_PRESSURE", "PRESSURE"],
+      "level_patterns": ["SURFACE", "GROUND"],
+      "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL"],
+      "notes": "Surface pressure is preferred over MSL pressure."
+    },
+    {
+      "id": "land_sea_and_roughness",
+      "priority": "external_required",
+      "role": "FastEddy lower boundary surface properties",
+      "coverage_patterns": ["LAND_SEA", "LANDMASK", "ROUGHNESS", "Z0"],
+      "level_patterns": ["SURFACE"],
+      "fallback_patterns": [],
+      "notes": "If AROME does not expose this cleanly, derive it from DEM, coastline, Corine/Copernicus land cover and sea mask."
+    }
+  ]
+}
