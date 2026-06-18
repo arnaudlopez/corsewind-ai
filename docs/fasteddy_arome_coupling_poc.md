@@ -154,6 +154,8 @@ z0m
 
 The roughness field is intentionally simple for the POC: sea `0.0002 m`, low land `0.03 m`, rough terrain above 200 m `0.08 m`.
 
+This roughness field is not considered a truth source. It is a placeholder to make the parent POC structurally complete, and must be replaced with coastline plus land-cover-derived roughness before any production claim.
+
 ## Step 4: Build The Parent NetCDF
 
 ```bash
@@ -232,10 +234,33 @@ True
 surface_fields.added = True
 ```
 
+For the stricter source/solver audit:
+
+```bash
+.venv/bin/python scripts/validate_fasteddy_parent_inputs.py
+```
+
+Output:
+
+```text
+reports/fasteddy_parent_input_validation.md
+```
+
+The current expected verdict is:
+
+```text
+parent_dataset_ready_for_icbc_converter_poc = true
+solver_input_directly_runnable = false
+production_truth_ready = false
+```
+
+The parent dataset has no invented meteorology: wind, temperature, humidity, geopotential and surface temperature come from AROME GRIB files. The remaining non-truth POC field is `z0m`, which is a roughness heuristic until replaced by land cover/coastline data.
+
 ## Known Limits Before A Real FastEddy Run
 
 - `VV__ISOBARIC` is pressure vertical velocity in `Pa/s`; the final converter must convert or remap it if FastEddy requires geometric vertical velocity.
 - `Z__ISOBARIC` is geopotential; the POC derives `height_m = Z / 9.80665`.
 - `surface_pressure` is still not provided as a source field in the current mapping.
+- `z0m` is a POC heuristic and must be replaced with a real land-cover/coastline roughness product.
 - The current file is a parent-state NetCDF, not a complete FastEddy `FE_Bndys` / `FE_interp` package.
 - The next step is the IC/BC writer plus a real Ajaccio/Bonifacio GPU benchmark against the WindNinja baseline.

@@ -215,8 +215,15 @@ def add_surface_fields(nc_path: Path) -> dict[str, Any]:
     dataset["z0m"] = xr.DataArray(z0m, dims=("latitude", "longitude"))
     dataset["topography_m"].attrs.update({"units": "m", "source": "Copernicus GLO-30 sampled to AROME parent grid"})
     dataset["landmask"].attrs.update({"units": "1", "description": "1 land, 0 sea; derived from DEM elevation > 1 m"})
-    dataset["z0m"].attrs.update({"units": "m", "description": "POC roughness: sea 0.0002, low land 0.03, rough terrain 0.08"})
-    dataset.attrs["surface_fields"] = "Copernicus DEM derived topography_m, landmask, z0m"
+    dataset["z0m"].attrs.update(
+        {
+            "units": "m",
+            "description": "POC heuristic roughness: sea 0.0002, low land 0.03, rough terrain 0.08",
+            "validation_status": "heuristic_not_truth_source",
+            "replacement_strategy": "Replace with coastline + land cover derived roughness before production.",
+        }
+    )
+    dataset.attrs["surface_fields"] = "Copernicus DEM derived topography_m and landmask; z0m is a POC heuristic."
     tmp_path = nc_path.with_suffix(nc_path.suffix + ".tmp")
     dataset.to_netcdf(tmp_path)
     dataset.close()
@@ -226,6 +233,7 @@ def add_surface_fields(nc_path: Path) -> dict[str, Any]:
         "topography_min_m": float(np.nanmin(topography)),
         "topography_max_m": float(np.nanmax(topography)),
         "land_fraction": float(np.nanmean(landmask)),
+        "z0m_status": "heuristic_not_truth_source",
     }
 
 
