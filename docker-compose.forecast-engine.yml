@@ -1,0 +1,27 @@
+services:
+  forecast-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.forecast-engine
+    image: corsewind/forecast-engine:local
+    container_name: corsewind-forecast-engine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      CORSEWIND_CONTAINER_ROOT: /app
+      CORSEWIND_HOST_ROOT: ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}
+    working_dir: /app
+    volumes:
+      - ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - python
+      - scripts/run_forecast_update_engine.py
+      - --poll-interval-sec
+      - "900"
+      - --windninja-parallel
+      - "6"
+      - --windninja-runtime-min
+      - "60"

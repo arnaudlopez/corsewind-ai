@@ -1,0 +1,287 @@
+# Moteur autonome de mise a jour AROME -> WindNinja 50 m
+
+## Objectif
+
+Ce moteur surveille regulierement la disponibilite d'une nouvelle prevision AROME Meteo-France. Lorsqu'un nouveau run est detecte, il regenere le produit WindNinja Corse 50 m a 10 m de hauteur pour les echeances utiles a la pratique windsurf, puis publie un manifeste de sortie destine a une integration ulterieure dans Beacon Live.
+
+Le but du produit est de transformer une prevision synoptique AROME en une couche de vent plus exploitable pour la lecture locale des effets de relief, couloirs, accelerations et deventes sur la Corse. Pour l'instant, le moteur ne lance pas les anciennes couches fines Ajaccio/Ricanto et ne gere pas les variantes 100 m ou 1 m.
+
+## Strategie d'echeances windsurf
+
+AROME publie des runs toutes les 3 h environ, mais chaque run contient des echeances horaires. Le moteur inspecte d'abord le dernier run disponible, calcule les heures utiles pour la session, puis telecharge seulement ces pas horaires AROME. Le mode large `H+0..H+48` reste possible, mais il n'est plus le comportement par defaut.
+
+Regle par defaut :
+
+- aujourd'hui : toutes les heures de `11h` a `17h` locale ;
+- demain : heures clefs `11h`, `13h`, `15h`, `17h` locale ;
+- les echeances deja passees depuis plus de 1 h sont ignorees ;
+- si aucune echeance session n'est disponible, le moteur retombe sur l'echeance AROME la plus proche.
+
+Exemple avec un run AROME `09 UTC` en ete :
+
+```text
+run_time_utc = 09:00 UTC = 11:00 locale
+H+0  -> 11:00 locale, aujourd'hui
+H+1  -> 12:00 locale, aujourd'hui
+H+2  -> 13:00 locale, aujourd'hui
+...
+H+6  -> 17:00 locale, aujourd'hui
+H+24 -> 11:00 locale, demain
+H+26 -> 13:00 locale, demain
+H+28 -> 15:00 locale, demain
+H+30 -> 17:00 locale, demain
+```
+
+Les tendances semaine restent un produit AROME ou modele grande echelle separe. On ne lance pas WindNinja 50 m sur toute la semaine : ce serait trop couteux et pas assez utile pour la decision de session.
+
+## Pipeline
+
+```mermaid
+flowchart TD
+  A["Polling regulier"] --> B["Inspecter dernier run AROME"]
+  B --> C["Selection echeances windsurf"]
+  C --> D["Refresh AROME seulement pour ces echeances"]
+  D --> E{"run_time_utc nouveau ?"}
+  E -- "non" --> F["Etat unchanged"]
+  E -- "oui ou --force" --> G["Pour chaque echeance: prepare tuiles WindNinja 50 m"]
+  G --> H["Run WindNinja 50 m / 10 m"]
+  H --> I["Build tuiles couleur + data Wind2D"]
+  I --> J["Publier manifeste Beacon Live multi-echeances"]
+```
+
+Le moteur publie maintenant les sorties WindNinja de maniere progressive. Apres chaque echeance terminee, il met a jour les manifests de tuiles couleur/data et reecrit le manifeste Beacon Live avec le statut `partial_updated`. L'application Wind2D peut donc afficher `H+18` des que `H+18` est calcule, meme si `H+20`, `H+22` ou `H+24` tournent encore.
+
+## Detection d'une mise a jour
+
+Le script `scripts/run_forecast_update_engine.py` appelle d'abord le refresh AROME :
+
+```bash
+python scripts/build_arome_corsica_wind_layer.py \
+  --lead-hours <echeances_session> \
+  --request-sleep-sec 1.3
+```
+
+Pour une recuperation exhaustive, on peut forcer l'ancien mode :
+
+```bash
+python3 scripts/run_forecast_update_engine.py --arome-lead-hour-policy all-48
+```
+
+Le fichier de reference est :
+
+```text
+visualizations/wind2d/arome-corsica-latest.json
+```
+
+Le moteur lit `run_time_utc` dans ce fichier et le compare a `last_completed_run_time_utc` dans :
+
+```text
+data/processed/diagnostics/forecast_update_engine_state.json
+```
+
+Si le run AROME est identique, le cycle se termine en `unchanged`. Si le run est nouveau, ou si `--force` est passe, le moteur relance la chaine WindNinja 50 m pour les echeances selectionnees.
+
+## Simulation lancee
+
+Pour chaque echeance selectionnee, la chaine automatique 50 m execute ces etapes :
+
+1. Preparer le plan de tuiles WindNinja 50 m :
+
+```bash
+python scripts/prepare_corsica_windninja_tiles.py \
+  --cellsize-m 50 \
+  --mesh-resolution-m 50 \
+  --tile-size-km 20 \
+  --overlap-km 2 \
+  --output-height-m 10 \
+  --lead-hour <LEAD_HOUR> \
+  --min-land-fraction 0 \
+  --plan-output data/processed/physics/corsica_windninja_tile_plan_50m_h<HH>.json
+```
+
+2. Lancer WindNinja en batch avec parallelisation :
+
+```bash
+python scripts/run_corsica_windninja_batch.py \
+  --plan data/processed/physics/corsica_windninja_tile_plan_50m_h<HH>.json \
+  --status-output data/processed/diagnostics/corsica_windninja_50m_batch_status_h<HH>.json \
+  --max-runtime-min 60 \
+  --parallel 6 \
+  --force
+```
+
+Le `--force` est volontaire. A chaque nouveau run AROME, on veut recalculer les sorties WindNinja avec le nouveau forcage meteo, meme si des fichiers `_vel.asc` existent deja.
+
+3. Construire les tuiles PNG couleur pour Wind2D :
+
+```bash
+python scripts/build_corsica_windninja_raster_tiles.py \
+  --plan data/processed/physics/corsica_windninja_tile_plan_50m_h<HH>.json \
+  --output-root visualizations/wind2d/windninja-corsica-tiles-50m
+```
+
+4. Construire les tuiles data encodant les valeurs brutes pour recolorisation dynamique :
+
+```bash
+python scripts/build_corsica_windninja_raster_tiles.py \
+  --encoding data \
+  --plan data/processed/physics/corsica_windninja_tile_plan_50m_h<HH>.json \
+  --output-root visualizations/wind2d/windninja-corsica-data-50m
+```
+
+Les tuiles sont rangees par cle d'echeance, par exemple `h00`, `h01`, `h24`. Les manifests `manifest.json` agregent plusieurs steps pour que l'UI puisse basculer d'une heure a l'autre.
+
+A la fin de chaque echeance, le moteur :
+
+- ajoute l'echeance dans `published_windninja_steps` ;
+- met `result` a `partial_updated` tant que le batch complet n'est pas termine ;
+- reecrit `data/processed/exports/beacon_live/windninja_50m_latest.json` ;
+- reecrit `data/processed/diagnostics/forecast_update_engine_status.json`.
+
+Quand toutes les echeances selectionnees sont calculees, le statut final repasse a `updated`.
+
+## Sorties produites
+
+Le manifeste principal pour une integration Beacon Live est :
+
+```text
+data/processed/exports/beacon_live/windninja_50m_latest.json
+```
+
+Il contient :
+
+- le run AROME source ;
+- la resolution WindNinja ;
+- la hauteur de sortie ;
+- les echeances WindNinja calculees ;
+- les chemins vers les manifests de tuiles couleur et data ;
+- un resume du dernier cycle de pipeline.
+
+Les fichiers de diagnostic sont :
+
+```text
+data/processed/diagnostics/forecast_update_engine_state.json
+data/processed/diagnostics/forecast_update_engine_status.json
+data/processed/diagnostics/corsica_windninja_50m_batch_status_h<HH>.json
+reports/corsica_windninja_50m_automatic_process_h<HH>.md
+reports/corsica_windninja_50m_raster_tiles_report_h<HH>.md
+reports/corsica_windninja_50m_data_tiles_report_h<HH>.md
+```
+
+## Lancer en local
+
+Dry-run, sans appel reseau ni calcul :
+
+```bash
+python3 scripts/run_forecast_update_engine.py \
+  --once \
+  --dry-run \
+  --windninja-parallel 6 \
+  --windninja-runtime-min 60
+```
+
+Cycle reel unique :
+
+```bash
+python3 scripts/run_forecast_update_engine.py \
+  --once \
+  --windninja-parallel 6 \
+  --windninja-runtime-min 60
+```
+
+Daemon local :
+
+```bash
+python3 scripts/run_forecast_update_engine.py \
+  --poll-interval-sec 900 \
+  --windninja-parallel 6 \
+  --windninja-runtime-min 60
+```
+
+Pour forcer une liste d'echeances WindNinja :
+
+```bash
+python3 scripts/run_forecast_update_engine.py \
+  --once \
+  --windninja-lead-hours 0 1 2 3 24 26 28 30
+```
+
+Pour faire un run de test limite a la fenetre restante aujourd'hui :
+
+```bash
+python3 scripts/run_forecast_update_engine.py \
+  --once \
+  --force \
+  --session-days today \
+  --session-past-tolerance-hours 0 \
+  --windninja-parallel 6 \
+  --windninja-runtime-min 60
+```
+
+Avec cette option, le moteur ignore demain et ne garde que les echeances de la journee courante encore dans la fenetre `11h-17h`.
+
+## Selection horaire dans Wind2D
+
+Wind2D lit les `steps` exposes par les manifests :
+
+```text
+visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json
+visualizations/wind2d/windninja-corsica-data-50m/manifest.json
+```
+
+La timeline affiche maintenant l'heure locale, le `H+` correspondant et un etat visuel lorsque WindNinja 50 m est disponible pour cette echeance. Si une heure n'a pas encore de tuiles WindNinja, l'utilisateur peut quand meme la selectionner pour voir AROME seul.
+
+Wind2D relit aussi automatiquement le manifest WindNinja 50 m toutes les 45 secondes avec cache-busting. Si une nouvelle echeance vient d'etre publiee par le moteur, la timeline et les boutons de couches se mettent a jour sans recharger la page. L'effet attendu en production est :
+
+- `H+18` apparait des que son calcul est fini ;
+- l'utilisateur peut le selectionner pendant que le moteur continue `H+20` ;
+- `H+20`, `H+22`, etc. deviennent disponibles au fil de l'eau.
+
+## Lancer en container Docker
+
+Le container de polling utilise le Docker daemon hote pour lancer l'image WindNinja/Katana. Il faut donc monter `/var/run/docker.sock` et fournir le chemin hote du depot.
+
+Variables attendues dans `.env` :
+
+```bash
+METEOFRANCE_API_KEY=...
+CORSEWIND_HOST_ROOT=/absolute/path/to/CorseWind.ai
+```
+
+Commande :
+
+```bash
+docker compose -f docker-compose.forecast-engine.yml up --build
+```
+
+Le compose monte le depot dans `/app` et passe :
+
+```text
+CORSEWIND_CONTAINER_ROOT=/app
+CORSEWIND_HOST_ROOT=/absolute/path/to/CorseWind.ai
+```
+
+Cette traduction est necessaire parce que WindNinja est lance dans un second container Docker. Le Docker daemon hote doit voir les cas WindNinja via le chemin hote, pas via `/app`.
+
+## Cadre operationnel
+
+Configuration par defaut :
+
+- polling toutes les 15 minutes ;
+- lead hours AROME : par defaut seulement les echeances session utiles ;
+- mode exhaustif optionnel : `--arome-lead-hour-policy all-48` ;
+- pause AROME : `1.3 s` apres chaque raster telecharge, pour rester compatible avec le quota API ;
+- selection WindNinja : fenetre windsurf locale `11h-17h`, aujourd'hui horaire, demain toutes les 2 h ;
+- produit WindNinja : 50 m, hauteur 10 m ;
+- tuiles : 20 km avec 2 km d'overlap ;
+- parallelisation : 6 tuiles ;
+- budget de calcul : 60 minutes par echeance.
+
+Le budget de 60 minutes s'applique par echeance WindNinja. La strategie par defaut evite donc de calculer toutes les heures sur 48 h. Elle privilegie la fenetre de session utile.
+
+## Limites actuelles
+
+- Le moteur detecte les nouveaux runs via `run_time_utc`, pas via webhook Meteo-France.
+- Il ne lance pas de validation meteorologique automatique contre des stations terrain.
+- Il produit uniquement la couche WindNinja 50 m / 10 m pour la fenetre windsurf.
+- Les sorties sont pretes pour Beacon Live, mais l'integration directe dans Beacon Live reste une etape separee.

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CorseWind AROME Wind Map</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="./wind2d.css?v=20260618-point-speed-direction" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <div id="map" aria-label="Carte CorseWind 2D"></div>
+      <button class="map-focus-toggle" id="map-focus-toggle" type="button" aria-pressed="false" title="Masquer les menus">
+        Carte
+      </button>
+      <nav class="map-layer-rail" aria-label="Cartes affichées">
+        <button class="map-layer-button active" data-layer="arome" type="button" aria-pressed="true" title="AROME">
+          A
+        </button>
+        <button class="map-layer-button active" data-layer="windninja50" type="button" aria-pressed="true" title="WindNinja 50 m / 10 m">
+          50
+        </button>
+      </nav>
+
+      <section class="topbar" aria-label="Résumé prévision">
+        <div class="brand-block">
+          <span class="brand">CorseWind.ai</span>
+          <span class="scene">Corse AROME latest</span>
+        </div>
+        <div class="status-grid">
+          <div>
+            <span class="metric-label">Couches</span>
+            <strong id="layer-height">AROME + WN 50 m</strong>
+          </div>
+          <div>
+            <span class="metric-label">Modèle</span>
+            <strong id="forcing">--</strong>
+          </div>
+          <div>
+            <span class="metric-label">Run</span>
+            <strong id="solver">--</strong>
+          </div>
+          <div>
+            <span class="metric-label">Régime</span>
+            <strong id="wind-regime">--</strong>
+          </div>
+          <div>
+            <span class="metric-label">Diagnostic</span>
+            <strong id="validation-status">--</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="legend-panel mobile-collapsed" aria-label="Légende">
+        <div class="legend-heading">
+          <div class="legend-title" id="legend-title">Vent AROME / WindNinja</div>
+          <button class="legend-expand-toggle" id="legend-expand-toggle" type="button" aria-expanded="false">Réglages</button>
+        </div>
+        <div class="gradient-bar"></div>
+        <div class="legend-row">
+          <span id="scale-min">0 kt</span>
+          <span id="scale-mid">6 kt</span>
+          <span id="scale-max-label">12 kt</span>
+        </div>
+        <div class="legend-expanded" id="legend-expanded">
+          <div class="session-legend" id="session-legend" hidden aria-label="Verdicts session"></div>
+          <div class="surface-legend" id="surface-legend" hidden aria-label="Classes surface"></div>
+          <div class="scale-control">
+            <label for="wind-scale">
+              <span>Échelle max</span>
+              <strong id="scale-max-value">12 kt</strong>
+            </label>
+            <input id="wind-scale" type="range" min="6" max="80" step="1" value="12" />
+          </div>
+          <div class="layer-toggles" aria-label="Couches visibles">
+            <button class="layer-toggle active" data-layer="arome" type="button">AROME</button>
+            <button class="layer-toggle active" data-layer="windninja50" type="button" title="WindNinja 50 m / 10 m">WN 50/10 m</button>
+          </div>
+          <div class="mode-tabs" aria-label="Rendu vent">
+            <button class="mode-tab active" data-mode="speed" type="button">Vitesse</button>
+            <button class="mode-tab" data-mode="devente" type="button">Dévente</button>
+            <button class="mode-tab" data-mode="acceleration" type="button">Accél.</button>
+          </div>
+          <button class="particle-toggle active" id="particle-toggle" type="button" aria-pressed="true" title="Afficher le sens du flux d'air">
+            Flux
+          </button>
+          <div class="particle-controls" aria-label="Réglages particules">
+            <label for="particle-opacity">
+              <span>Luminosité particules</span>
+              <strong id="particle-opacity-value">100%</strong>
+            </label>
+            <input id="particle-opacity" type="range" min="10" max="500" step="5" value="300" />
+            <label for="particle-size">
+              <span>Taille particules</span>
+              <strong id="particle-size-value">100%</strong>
+            </label>
+            <input id="particle-size" type="range" min="25" max="500" step="5" value="100" />
+            <label for="particle-density">
+              <span>Nombre particules</span>
+              <strong id="particle-density-value">100%</strong>
+            </label>
+            <input id="particle-density" type="range" min="20" max="500" step="5" value="300" />
+            <label for="particle-life">
+              <span>Durée de vie particules</span>
+              <strong id="particle-life-value">100%</strong>
+            </label>
+            <input id="particle-life" type="range" min="20" max="500" step="5" value="400" />
+          </div>
+          <div class="effect-grid">
+            <span><i class="dot dot-shelter"></i>AROME brut</span>
+            <span><i class="dot dot-lift"></i>Échelle fixe</span>
+            <span id="cfd-status"><i class="dot dot-cfd"></i>WindNinja Corse 50 m</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="forecast-strip" aria-label="Prévision">
+        <button class="forecast-step active" type="button">H+0</button>
+      </section>
+
+      <section class="spot-strip" aria-label="Spots windsurf" hidden></section>
+
+      <section class="readout" aria-label="Mesure locale">
+        <div class="readout-heading">Corse</div>
+        <div class="readout-main" id="spot-speed">--</div>
+        <div class="readout-sub" id="spot-detail">Chargement</div>
+      </section>
+
+      <section class="point-inspector" id="point-inspector" aria-label="Mesure du point" hidden>
+        <div class="point-inspector__speed" id="point-inspector-speed">--</div>
+        <div class="point-inspector__detail" id="point-inspector-detail">Survolez la carte</div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module" src="./wind2d.js?v=20260618-point-speed-direction"></script>
+  </body>
+</html>
