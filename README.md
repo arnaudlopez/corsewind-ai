@@ -30,6 +30,7 @@ visualizations/wind2d/
 
 docs/
   forecast_update_engine.md
+  qes_winds_benchmark.md
 ```
 
 ## Setup
@@ -110,3 +111,5 @@ visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json
 ## Documentation
 
 See `docs/forecast_update_engine.md` for the full update process, selected forecast hours, generated artifacts, and Beacon Live handoff contract.
+
+See `docs/qes_winds_benchmark.md` for the optional QES-Winds GPU benchmark against the current WindNinja 50 m pipeline on Ajaccio and Bonifacio test zones.
