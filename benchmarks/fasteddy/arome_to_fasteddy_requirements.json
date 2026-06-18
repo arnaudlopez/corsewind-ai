@@ -15,7 +15,7 @@
       "id": "u_wind_3d",
       "priority": "required",
       "role": "3D initial and lateral boundary U component",
-      "coverage_patterns": ["U_COMPONENT_OF_WIND", "U__ISOBARIC", "U__HEIGHT"],
+      "coverage_patterns": ["U_COMPONENT_OF_WIND__ISOBARIC_SURFACE", "U__ISOBARIC", "U_COMPONENT_OF_WIND", "U__HEIGHT"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["U_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "10 m U is not sufficient for production FastEddy; it is only a fallback for diagnostics."
@@ -24,7 +24,7 @@
       "id": "v_wind_3d",
       "priority": "required",
       "role": "3D initial and lateral boundary V component",
-      "coverage_patterns": ["V_COMPONENT_OF_WIND", "V__ISOBARIC", "V__HEIGHT"],
+      "coverage_patterns": ["V_COMPONENT_OF_WIND__ISOBARIC_SURFACE", "V__ISOBARIC", "V_COMPONENT_OF_WIND", "V__HEIGHT"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["V_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Must align exactly with U levels and times."
@@ -33,7 +33,7 @@
       "id": "w_wind_3d",
       "priority": "desired",
       "role": "Vertical velocity for parent consistency and diagnostics",
-      "coverage_patterns": ["VERTICAL_VELOCITY", "W_COMPONENT_OF_WIND", "GEOMETRIC_VERTICAL_VELOCITY", "VV__ISOBARIC", "VV2__ISOBARIC"],
+      "coverage_patterns": ["VERTICAL_VELOCITY_GEOMETRIC__ISOBARIC_SURFACE", "VV__ISOBARIC", "VV2__ISOBARIC", "VERTICAL_VELOCITY", "W_COMPONENT_OF_WIND", "GEOMETRIC_VERTICAL_VELOCITY"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": [],
       "notes": "Can be initialized to zero for an early POC, but that weakens vertical-flow realism."
@@ -42,7 +42,7 @@
       "id": "temperature_3d",
       "priority": "required",
       "role": "Potential-temperature/base-state construction and stability",
-      "coverage_patterns": ["T__ISOBARIC", "THETA__ISOBARIC", "THETAV__ISOBARIC", "TEMPERATURE", "POTENTIAL_TEMPERATURE"],
+      "coverage_patterns": ["TEMPERATURE__ISOBARIC_SURFACE", "T__ISOBARIC", "POTENTIAL_TEMPERATURE__ISOBARIC_SURFACE", "THETA__ISOBARIC", "VIRTUAL_POTENTIAL_TEMPERATURE__ISOBARIC_SURFACE", "THETAV__ISOBARIC", "TEMPERATURE", "POTENTIAL_TEMPERATURE"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["TEMPERATURE__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Required to avoid a purely neutral/idealized LES."
@@ -51,7 +51,7 @@
       "id": "humidity_3d",
       "priority": "required",
       "role": "Moisture state for realistic boundary-layer behavior",
-      "coverage_patterns": ["SPECIFIC_HUMIDITY", "RELATIVE_HUMIDITY", "DEWPOINT", "DEW_POINT", "HU__ISOBARIC"],
+      "coverage_patterns": ["RELATIVE_HUMIDITY__ISOBARIC_SURFACE", "HU__ISOBARIC", "SPECIFIC_HUMIDITY", "RELATIVE_HUMIDITY", "DEWPOINT", "DEW_POINT"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["RELATIVE_HUMIDITY__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Specific humidity is preferred; relative humidity requires conversion using temperature/pressure."
@@ -60,8 +60,8 @@
       "id": "pressure_or_height_3d",
       "priority": "required",
       "role": "Vertical coordinate conversion to FastEddy z levels",
-      "coverage_patterns": ["PRESSURE", "GEOPOTENTIAL", "GEOPOTENTIAL_HEIGHT", "Z__ISOBARIC"],
-      "level_patterns": ["SURFACE", "ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
+      "coverage_patterns": ["GEOPOTENTIAL__ISOBARIC_SURFACE", "Z__ISOBARIC", "GEOPOTENTIAL_HEIGHT", "GEOPOTENTIAL", "PRESSURE"],
+      "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL", "SURFACE_PRESSURE"],
       "notes": "Needed to map pressure/model levels onto height above terrain."
     },
@@ -69,7 +69,7 @@
       "id": "surface_temperature",
       "priority": "desired",
       "role": "Surface thermal forcing",
-      "coverage_patterns": ["SURFACE_TEMPERATURE", "SKIN_TEMPERATURE", "TEMPERATURE", "T__GROUND", "T__GROUND_OR_WATER_SURFACE"],
+      "coverage_patterns": ["TEMPERATURE__GROUND_OR_WATER_SURFACE", "T__GROUND", "T__GROUND_OR_WATER_SURFACE", "SURFACE_TEMPERATURE", "SKIN_TEMPERATURE", "TEMPERATURE"],
       "level_patterns": ["SURFACE", "GROUND"],
       "fallback_patterns": ["TEMPERATURE__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Useful for coastal sea/land thermal contrast."
@@ -78,7 +78,7 @@
       "id": "surface_pressure",
       "priority": "desired",
       "role": "Hydrostatic/base-state consistency",
-      "coverage_patterns": ["SURFACE_PRESSURE", "P__GROUND", "PRESSURE__GROUND_OR_WATER_SURFACE", "PRESSURE"],
+      "coverage_patterns": ["PRESSURE__GROUND_OR_WATER_SURFACE", "P__GROUND", "SURFACE_PRESSURE", "PRESSURE"],
       "level_patterns": ["SURFACE", "GROUND"],
       "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL", "P__SEA"],
       "notes": "P__GROUND is preferred. P__SEA / MSL pressure is only a fallback and should be corrected hydrostatically if used."

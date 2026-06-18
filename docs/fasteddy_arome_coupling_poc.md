@@ -127,7 +127,7 @@ For the full current POC:
   --download
 ```
 
-This downloads 31 GRIB inputs for H+0: 6 isobaric requirements x 5 pressure levels, plus surface temperature.
+This downloads 32 GRIB inputs for H+0: 6 isobaric requirements x 5 pressure levels, plus surface temperature and surface pressure.
 
 ## Step 3: Add Static Surface Truth Sources
 
@@ -209,8 +209,8 @@ pressure_hpa: 5
 latitude: 8
 longitude: 12
 pressure levels: 850, 700, 600, 500, 300 hPa
-expected_grib_inputs: 31
-decoded_grib_inputs: 31
+expected_grib_inputs: 32
+decoded_grib_inputs: 32
 ```
 
 Current readiness gate:
@@ -245,7 +245,7 @@ Expected result:
 
 ```text
 True
-31 31
+32 32
 surface_fields.added = True
 ```
 
@@ -269,13 +269,13 @@ solver_input_directly_runnable = false
 production_truth_ready = false
 ```
 
-The parent dataset has no invented meteorology: wind, temperature, humidity, geopotential and surface temperature come from AROME GRIB files. Surface pressure is expected from AROME `P__GROUND` or `PRESSURE__GROUND_OR_WATER_SURFACE` on the next authenticated refresh. Surface properties come from Copernicus GLO-30 plus ESA WorldCover 10 m; `z0m` is land-cover-derived but still requires local calibration before production.
+The parent dataset has no invented meteorology: wind, temperature, humidity, geopotential, surface temperature and surface pressure come from AROME GRIB files. Surface properties come from Copernicus GLO-30 plus ESA WorldCover 10 m; `z0m` is land-cover-derived but still requires local calibration before production.
 
 ## Known Limits Before A Real FastEddy Run
 
-- `VV__ISOBARIC` is pressure vertical velocity in `Pa/s`; the final converter must convert or remap it if FastEddy requires geometric vertical velocity.
+- The current preferred vertical velocity field is `VERTICAL_VELOCITY_GEOMETRIC__ISOBARIC_SURFACE`, decoded as geometric vertical velocity in `m/s`.
 - `Z__ISOBARIC` is geopotential; the POC derives `height_m = Z / 9.80665`.
-- `surface_pressure` is mapped to AROME `P__GROUND` / `PRESSURE__GROUND_OR_WATER_SURFACE`, but the current local generated NetCDF must be refreshed with an authenticated Meteo-France key to include it.
+- `surface_pressure` is mapped to AROME `P__GROUND` / `PRESSURE__GROUND_OR_WATER_SURFACE` and is included after an authenticated refresh.
 - `z0m` now comes from ESA WorldCover classes, but the class-to-roughness lookup must be locally calibrated.
 - The current file is a parent-state NetCDF, not a complete FastEddy `FE_Bndys` / `FE_interp` package.
 - The next step is the IC/BC writer plus a real Ajaccio/Bonifacio GPU benchmark against the WindNinja baseline.
