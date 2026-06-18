@@ -68,7 +68,15 @@ def load_coverages(args: argparse.Namespace) -> list[str]:
 
 def matches_any(text: str, patterns: list[str]) -> bool:
     upper = text.upper()
-    return any(pattern.upper() in upper for pattern in patterns)
+    for pattern in patterns:
+        normalized = pattern.upper()
+        if "__" in normalized:
+            if upper == normalized:
+                return True
+            continue
+        if normalized in upper:
+            return True
+    return False
 
 
 def matches_level(text: str, patterns: list[str]) -> bool:

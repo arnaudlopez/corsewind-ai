@@ -30,7 +30,7 @@ With a Meteo-France API key in `.env`:
 ```bash
 python3 scripts/inventory_arome_fasteddy_inputs.py \
   --product arome \
-  --resolution 001 \
+  --resolution 0025 \
   --capabilities-output data/raw/arome_fasteddy_capabilities.xml
 ```
 
@@ -78,6 +78,8 @@ After the inventory exists:
 
 ```bash
 python3 scripts/prepare_arome_fasteddy_poc.py \
+  --product arome \
+  --resolution 0025 \
   --bbox 8.62 41.82 8.90 42.00 \
   --lead-hours 0
 ```
@@ -94,12 +96,43 @@ To attempt the downloads:
 
 ```bash
 python3 scripts/prepare_arome_fasteddy_poc.py \
+  --product arome \
+  --resolution 0025 \
   --bbox 8.62 41.82 8.90 42.00 \
   --lead-hours 0 \
   --download
 ```
 
 The script intentionally marks 10 m variables as fallback, not production-ready fields.
+
+For the current public API, AROME `0025` exposes useful isobaric fields such as:
+
+```text
+U__ISOBARIC
+V__ISOBARIC
+VV__ISOBARIC
+T__ISOBARIC
+HU__ISOBARIC
+Z__ISOBARIC
+```
+
+Meteo-France WCS requires a single pressure slice per request. The POC therefore downloads one GRIB per variable and pressure level. Default planned levels are:
+
+```text
+850, 700, 600, 500, 300 hPa
+```
+
+Use `--pressure-levels-hpa` to limit a test run, for example:
+
+```bash
+python3 scripts/prepare_arome_fasteddy_poc.py \
+  --product arome \
+  --resolution 0025 \
+  --bbox 8.62 41.82 8.90 42.00 \
+  --lead-hours 0 \
+  --pressure-levels-hpa 850 700 \
+  --download
+```
 
 ## Step 4: Build Parent POC Manifest
 

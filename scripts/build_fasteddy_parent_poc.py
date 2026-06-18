@@ -45,14 +45,23 @@ def collect_inputs(plan: dict[str, Any]) -> tuple[dict[str, np.ndarray], list[st
             if item.get("status") != "planned":
                 missing.append(item["requirement_id"])
                 continue
-            path = ROOT / item["output"]
-            if not path.exists():
+            output_candidates = []
+            if item.get("output_template") and item.get("pressure_levels_hpa"):
+                output_candidates.extend(
+                    ROOT / item["output_template"].format(pressure_hpa=pressure_hpa)
+                    for pressure_hpa in item["pressure_levels_hpa"]
+                )
+            else:
+                output_candidates.append(ROOT / item["output"])
+            existing = [path for path in output_candidates if path.exists()]
+            if not existing:
                 missing.append(item["requirement_id"])
                 continue
-            if path.suffix.lower() in {".tiff", ".tif"}:
-                arrays[item["requirement_id"]] = read_float64_tiff(path).astype(np.float32)
-            else:
-                unsupported.append(item["requirement_id"])
+            for path in existing:
+                if path.suffix.lower() in {".tiff", ".tif"}:
+                    arrays[item["requirement_id"]] = read_float64_tiff(path).astype(np.float32)
+                else:
+                    unsupported.append(item["requirement_id"])
     return arrays, sorted(set(missing)), sorted(set(unsupported))
 
 

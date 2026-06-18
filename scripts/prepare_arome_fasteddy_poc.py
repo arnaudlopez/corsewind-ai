@@ -54,11 +54,22 @@ def select_run(inventory: dict[str, Any], requested: str | None) -> dict[str, An
     return runs[0]
 
 
+def variable_preference(variable: str, requirement: dict[str, Any]) -> tuple[int, str]:
+    upper = variable.upper()
+    for index, pattern in enumerate(requirement.get("coverage_patterns", [])):
+        normalized = pattern.upper()
+        if "__" in normalized and upper == normalized:
+            return index, variable
+        if "__" not in normalized and normalized in upper:
+            return index + 100, variable
+    return 10000, variable
+
+
 def select_variable(requirement: dict[str, Any], inventory_req: dict[str, Any]) -> dict[str, Any] | None:
     matches = inventory_req.get("matches", [])
     direct = [item for item in matches if item["match_type"] == "direct"]
     fallback = [item for item in matches if item["match_type"] == "fallback"]
-    selected = (direct or fallback)
+    selected = sorted(direct or fallback, key=lambda item: variable_preference(item["variable"], requirement))
     if not selected:
         return None
     return {
@@ -68,7 +79,17 @@ def select_variable(requirement: dict[str, Any], inventory_req: dict[str, Any]) 
     }
 
 
-def request_subsets(bbox: list[float], valid_time: datetime, requirement_id: str, selected: dict[str, Any]) -> list[str]:
+def is_isobaric_variable(variable: str) -> bool:
+    return "ISOBARIC" in variable.upper()
+
+
+def request_subsets(
+    bbox: list[float],
+    valid_time: datetime,
+    requirement_id: str,
+    selected: dict[str, Any],
+    pressure_hpa: int | None = None,
+) -> list[str]:
     min_lon, min_lat, max_lon, max_lat = bbox
     subsets = [
         f"long({min_lon},{max_lon})",
@@ -78,8 +99,10 @@ def request_subsets(bbox: list[float], valid_time: datetime, requirement_id: str
     variable = selected["variable"].upper()
     if "SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND" in variable:
         subsets.insert(2, "height(10)")
-    elif any(marker in variable for marker in ("ISOBARIC", "PRESSURE")):
-        subsets.insert(2, "pressure(100000,85000)")
+    elif is_isobaric_variable(variable):
+        if pressure_hpa is None:
+            raise ValueError(f"Isobaric variable {variable} requires a single pressure level.")
+        subsets.insert(2, f"pressure({pressure_hpa})")
     elif any(marker in variable for marker in ("MODEL_LEVEL", "HYBRID")):
         subsets.insert(2, "level(1,20)")
     elif requirement_id in {"surface_temperature", "surface_pressure"}:
@@ -120,6 +143,7 @@ def build_plan(
             output_format = "image/tiff" if selected["match_type"] == "fallback" else "application/wmo-grib"
             suffix = "tiff" if output_format == "image/tiff" else "grib2"
             output = step_dir / f"{req_id}__{safe_name(selected['variable'])}.{suffix}"
+            pressure_levels = list(args.pressure_levels_hpa) if is_isobaric_variable(selected["variable"]) else []
             downloads.append(
                 {
                     "requirement_id": req_id,
@@ -130,8 +154,18 @@ def build_plan(
                     "match_type": selected["match_type"],
                     "coverage_id": coverage_id,
                     "format": output_format,
-                    "subsets": request_subsets(list(args.bbox), valid_time, req_id, selected),
+                    "subsets": request_subsets(
+                        list(args.bbox),
+                        valid_time,
+                        req_id,
+                        selected,
+                        pressure_levels[0] if pressure_levels else None,
+                    ),
+                    "pressure_levels_hpa": pressure_levels,
                     "output": display_path(output),
+                    "output_template": display_path(step_dir / f"{req_id}__{safe_name(selected['variable'])}__p{{pressure_hpa}}.{suffix}")
+                    if pressure_levels
+                    else None,
                 }
             )
         steps.append(
@@ -194,41 +228,57 @@ def download_plan(plan: dict[str, Any], args: argparse.Namespace) -> list[dict[s
         for item in step["downloads"]:
             if item["status"] != "planned":
                 continue
-            output = ROOT / item["output"]
-            if output.exists() and not args.force:
-                results.append({"requirement_id": item["requirement_id"], "status": "exists", "output": item["output"]})
-                continue
-            params = [
-                ("service", "WCS"),
-                ("version", "2.0.1"),
-                ("coverageid", item["coverage_id"]),
-                ("format", item["format"]),
-            ]
-            for subset in item["subsets"]:
-                params.append(("subset", subset))
-            try:
-                response = request_api(url, params, args.auth_header)
-            except SystemExit as exc:
+            pressure_levels = item.get("pressure_levels_hpa") or [None]
+            for pressure_hpa in pressure_levels:
+                output_text = (
+                    item["output_template"].format(pressure_hpa=pressure_hpa)
+                    if pressure_hpa is not None and item.get("output_template")
+                    else item["output"]
+                )
+                output = ROOT / output_text
+                if output.exists() and not args.force:
+                    results.append({"requirement_id": item["requirement_id"], "pressure_hpa": pressure_hpa, "status": "exists", "output": output_text})
+                    continue
+                params = [
+                    ("service", "WCS"),
+                    ("version", "2.0.1"),
+                    ("coverageid", item["coverage_id"]),
+                    ("format", item["format"]),
+                ]
+                subsets = [
+                    subset
+                    for subset in item["subsets"]
+                    if not subset.startswith("pressure(")
+                ]
+                if pressure_hpa is not None:
+                    subsets.insert(2, f"pressure({pressure_hpa})")
+                for subset in subsets:
+                    params.append(("subset", subset))
+                try:
+                    response = request_api(url, params, args.auth_header)
+                except SystemExit as exc:
+                    results.append(
+                        {
+                            "requirement_id": item["requirement_id"],
+                            "coverage_id": item["coverage_id"],
+                            "pressure_hpa": pressure_hpa,
+                            "status": "failed",
+                            "message": str(exc),
+                        }
+                    )
+                    continue
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(response.content)
                 results.append(
                     {
                         "requirement_id": item["requirement_id"],
                         "coverage_id": item["coverage_id"],
-                        "status": "failed",
-                        "message": str(exc),
+                        "pressure_hpa": pressure_hpa,
+                        "status": "downloaded",
+                        "bytes": len(response.content),
+                        "output": output_text,
                     }
                 )
-                continue
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(response.content)
-            results.append(
-                {
-                    "requirement_id": item["requirement_id"],
-                    "coverage_id": item["coverage_id"],
-                    "status": "downloaded",
-                    "bytes": len(response.content),
-                    "output": item["output"],
-                }
-            )
     return results
 
 
@@ -316,6 +366,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zone-label", default="Ajaccio FastEddy AROME POC")
     parser.add_argument("--bbox", nargs=4, type=float, default=[8.62, 41.82, 8.9, 42.0])
     parser.add_argument("--lead-hours", nargs="+", type=int, default=[0])
+    parser.add_argument("--pressure-levels-hpa", nargs="+", type=int, default=[850, 700, 600, 500, 300])
     parser.add_argument("--run-time-utc")
     parser.add_argument("--download", action="store_true")
     parser.add_argument("--force", action="store_true")

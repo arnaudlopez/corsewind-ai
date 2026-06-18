@@ -8,14 +8,14 @@
     "default_bbox_wgs84": [8.62, 41.82, 8.9, 42.0],
     "default_lead_hours": [0],
     "preferred_product": "arome",
-    "preferred_resolution": "001"
+    "preferred_resolution": "0025"
   },
   "requirements": [
     {
       "id": "u_wind_3d",
       "priority": "required",
       "role": "3D initial and lateral boundary U component",
-      "coverage_patterns": ["U_COMPONENT_OF_WIND"],
+      "coverage_patterns": ["U_COMPONENT_OF_WIND", "U__ISOBARIC", "U__HEIGHT"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["U_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "10 m U is not sufficient for production FastEddy; it is only a fallback for diagnostics."
@@ -24,7 +24,7 @@
       "id": "v_wind_3d",
       "priority": "required",
       "role": "3D initial and lateral boundary V component",
-      "coverage_patterns": ["V_COMPONENT_OF_WIND"],
+      "coverage_patterns": ["V_COMPONENT_OF_WIND", "V__ISOBARIC", "V__HEIGHT"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["V_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Must align exactly with U levels and times."
@@ -33,7 +33,7 @@
       "id": "w_wind_3d",
       "priority": "desired",
       "role": "Vertical velocity for parent consistency and diagnostics",
-      "coverage_patterns": ["VERTICAL_VELOCITY", "W_COMPONENT_OF_WIND", "GEOMETRIC_VERTICAL_VELOCITY"],
+      "coverage_patterns": ["VERTICAL_VELOCITY", "W_COMPONENT_OF_WIND", "GEOMETRIC_VERTICAL_VELOCITY", "VV__ISOBARIC", "VV2__ISOBARIC"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": [],
       "notes": "Can be initialized to zero for an early POC, but that weakens vertical-flow realism."
@@ -42,7 +42,7 @@
       "id": "temperature_3d",
       "priority": "required",
       "role": "Potential-temperature/base-state construction and stability",
-      "coverage_patterns": ["TEMPERATURE", "POTENTIAL_TEMPERATURE"],
+      "coverage_patterns": ["T__ISOBARIC", "THETA__ISOBARIC", "THETAV__ISOBARIC", "TEMPERATURE", "POTENTIAL_TEMPERATURE"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["TEMPERATURE__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Required to avoid a purely neutral/idealized LES."
@@ -51,7 +51,7 @@
       "id": "humidity_3d",
       "priority": "required",
       "role": "Moisture state for realistic boundary-layer behavior",
-      "coverage_patterns": ["SPECIFIC_HUMIDITY", "RELATIVE_HUMIDITY", "DEWPOINT", "DEW_POINT"],
+      "coverage_patterns": ["SPECIFIC_HUMIDITY", "RELATIVE_HUMIDITY", "DEWPOINT", "DEW_POINT", "HU__ISOBARIC"],
       "level_patterns": ["ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["RELATIVE_HUMIDITY__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Specific humidity is preferred; relative humidity requires conversion using temperature/pressure."
@@ -60,7 +60,7 @@
       "id": "pressure_or_height_3d",
       "priority": "required",
       "role": "Vertical coordinate conversion to FastEddy z levels",
-      "coverage_patterns": ["PRESSURE", "GEOPOTENTIAL", "GEOPOTENTIAL_HEIGHT"],
+      "coverage_patterns": ["PRESSURE", "GEOPOTENTIAL", "GEOPOTENTIAL_HEIGHT", "Z__ISOBARIC"],
       "level_patterns": ["SURFACE", "ISOBARIC", "MODEL_LEVEL", "HYBRID", "PRESSURE"],
       "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL", "SURFACE_PRESSURE"],
       "notes": "Needed to map pressure/model levels onto height above terrain."
@@ -69,7 +69,7 @@
       "id": "surface_temperature",
       "priority": "desired",
       "role": "Surface thermal forcing",
-      "coverage_patterns": ["SURFACE_TEMPERATURE", "SKIN_TEMPERATURE", "TEMPERATURE"],
+      "coverage_patterns": ["SURFACE_TEMPERATURE", "SKIN_TEMPERATURE", "TEMPERATURE", "T__GROUND", "T__GROUND_OR_WATER_SURFACE"],
       "level_patterns": ["SURFACE", "GROUND"],
       "fallback_patterns": ["TEMPERATURE__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND"],
       "notes": "Useful for coastal sea/land thermal contrast."
