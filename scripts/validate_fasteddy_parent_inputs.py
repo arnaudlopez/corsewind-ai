@@ -66,21 +66,33 @@ SOLVER_REQUIREMENTS = [
         "required_for": "Surface thermal forcing",
     },
     {
+        "field": "surface_pressure",
+        "expected": "2D ground/surface pressure",
+        "status_if_present": "observed_arome_grib",
+        "required_for": "Hydrostatic/base-state consistency",
+    },
+    {
         "field": "topography_m",
         "expected": "2D terrain elevation",
         "status_if_present": "external_copernicus_dem",
         "required_for": "GeoSpec/SimGrid terrain",
     },
     {
+        "field": "landcover_class",
+        "expected": "2D categorical land cover",
+        "status_if_present": "external_esa_worldcover",
+        "required_for": "GeoSpec land cover and roughness mapping",
+    },
+    {
         "field": "landmask",
         "expected": "2D land/sea mask",
-        "status_if_present": "derived_from_dem_threshold",
+        "status_if_present": "derived_from_esa_worldcover",
         "required_for": "GeoSpec/SimGrid surface classification",
     },
     {
         "field": "z0m",
         "expected": "2D momentum roughness length",
-        "status_if_present": "poc_heuristic_replace_before_production",
+        "status_if_present": "derived_from_esa_worldcover_needs_local_calibration",
         "required_for": "GeoSpec/SimGrid roughness",
     },
 ]
@@ -131,8 +143,13 @@ def validate_dataset(netcdf_path: Path, manifest_path: Path) -> dict[str, Any]:
                 blockers.append(f"{name}: contains non-finite values")
             if field_status.startswith("poc_heuristic"):
                 warnings.append(f"{name}: heuristic only, not a validated source field")
+            if field_status.endswith("needs_local_calibration"):
+                warnings.append(f"{name}: derived from a real land-cover source, but class roughness values need local calibration")
         else:
-            blockers.append(f"{name}: missing")
+            if name == "surface_pressure":
+                warnings.append("surface_pressure: missing; desired for hydrostatic/base-state consistency")
+            else:
+                blockers.append(f"{name}: missing")
         fields.append(
             {
                 **requirement,
@@ -157,12 +174,12 @@ def validate_dataset(netcdf_path: Path, manifest_path: Path) -> dict[str, Any]:
             blockers.append("height_m: mean heights do not increase from 850 to 300 hPa")
     if "landmask" in dataset:
         unique = sorted(float(value) for value in np.unique(dataset["landmask"].values))
-        if unique != [0.0, 1.0]:
+        if not set(unique).issubset({0.0, 1.0}):
             warnings.append(f"landmask: expected binary 0/1, got {unique}")
-
-    missing_inputs = list(manifest.get("missing_inputs") or [])
-    if "surface_pressure" in missing_inputs:
-        warnings.append("surface_pressure: not present; desired for hydrostatic/base-state consistency")
+    if "landcover_class" in dataset:
+        classes = sorted(int(value) for value in np.unique(dataset["landcover_class"].values))
+        if 0 in classes:
+            warnings.append("landcover_class: contains unknown class 0")
 
     return {
         "format": "corsewind.fasteddy_parent_input_validation.v1",
@@ -186,8 +203,9 @@ def validate_dataset(netcdf_path: Path, manifest_path: Path) -> dict[str, Any]:
             "Convert relative humidity to specific humidity or mixing ratio before final GenICBCs/FastEddy coupling.",
             "Convert VV__ISOBARIC pressure vertical velocity from Pa/s only if the selected FastEddy converter path requires geometric w.",
             "Use Copernicus GLO-30, or higher-resolution local DEM where available, for elevation.",
-            "Replace POC z0m constants with coastline plus land-cover based roughness, ideally Copernicus/Corine classes mapped to FastEddy land-cover metadata.",
-            "Fetch or derive surface pressure if needed by the final base-state/ICBC conversion.",
+            "Use ESA WorldCover 10 m as the primary land-cover source, with CORINE 100 m only as European fallback/context.",
+            "Calibrate WorldCover class-to-z0m values against local observations and high-resolution coastline checks.",
+            "Fetch AROME P__GROUND as surface_pressure for the final base-state/ICBC conversion.",
             "Generate real FastEddy GeoSpec, SimGrid and GenICBCs outputs; do not pass this parent NetCDF directly to FastEddy as a final input.",
         ],
     }

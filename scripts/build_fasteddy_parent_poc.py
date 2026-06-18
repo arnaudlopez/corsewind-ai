@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,33 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PLAN = ROOT / "data/processed/benchmarks/fasteddy/arome_poc/arome_fasteddy_poc_download_plan.json"
 DEFAULT_OUTPUT = ROOT / "data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc.nc"
 DEFAULT_MANIFEST = ROOT / "data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc_manifest.json"
+WORLDCOVER_DIR = ROOT / "data/raw/landcover/esa_worldcover_v200_2021"
+WORLDCOVER_Z0M = {
+    10: 1.0,  # Tree cover
+    20: 0.12,  # Shrubland
+    30: 0.03,  # Grassland
+    40: 0.05,  # Cropland
+    50: 0.7,  # Built-up
+    60: 0.005,  # Bare / sparse vegetation
+    70: 0.003,  # Snow and ice
+    80: 0.0002,  # Permanent water bodies
+    90: 0.05,  # Herbaceous wetland
+    95: 0.8,  # Mangroves
+    100: 0.02,  # Moss and lichen
+}
+WORLDCOVER_CLASSES = {
+    10: "Tree cover",
+    20: "Shrubland",
+    30: "Grassland",
+    40: "Cropland",
+    50: "Built-up",
+    60: "Bare / sparse vegetation",
+    70: "Snow and ice",
+    80: "Permanent water bodies",
+    90: "Herbaceous wetland",
+    95: "Mangroves",
+    100: "Moss and lichen",
+}
 
 
 def utc_now() -> str:
@@ -43,7 +72,80 @@ FASTEDDY_VAR_NAMES = {
     "humidity_3d": "relative_humidity",
     "pressure_or_height_3d": "geopotential_or_height",
     "surface_temperature": "surface_temperature",
+    "surface_pressure": "surface_pressure",
 }
+
+
+@dataclass
+class WorldCoverTile:
+    path: Path
+    north_lat: int
+    west_lon: int
+    image: Any
+
+    @property
+    def south_lat(self) -> int:
+        return self.north_lat - 3
+
+    @property
+    def east_lon(self) -> int:
+        return self.west_lon + 3
+
+
+def parse_worldcover_tile(path: Path) -> WorldCoverTile:
+    from PIL import Image
+
+    Image.MAX_IMAGE_PIXELS = None
+    match = re.search(r"_([NS])(\d{2})([EW])(\d{3})_Map\.tif$", path.name)
+    if not match:
+        raise ValueError(f"Unsupported ESA WorldCover tile name: {path.name}")
+    north_lat = int(match.group(2))
+    if match.group(1) == "S":
+        north_lat *= -1
+    west_lon = int(match.group(4))
+    if match.group(3) == "W":
+        west_lon *= -1
+    image = Image.open(path)
+    return WorldCoverTile(path=path, north_lat=north_lat, west_lon=west_lon, image=image)
+
+
+def load_worldcover_tiles() -> list[WorldCoverTile]:
+    tiles = [parse_worldcover_tile(path) for path in sorted(WORLDCOVER_DIR.glob("ESA_WorldCover_10m_2021_v200_*_Map.tif"))]
+    if not tiles:
+        raise FileNotFoundError(f"No ESA WorldCover tiles found in {WORLDCOVER_DIR}")
+    return tiles
+
+
+def sample_worldcover(tiles: list[WorldCoverTile], lon: Any, lat: Any) -> Any:
+    import numpy as np
+
+    out = np.full(lon.shape, 0, dtype=np.uint16)
+    for tile in tiles:
+        mask = (
+            (lon >= tile.west_lon)
+            & (lon < tile.east_lon)
+            & (lat > tile.south_lat)
+            & (lat <= tile.north_lat)
+        )
+        if not np.any(mask):
+            continue
+        cols, rows = tile.image.size
+        x = ((lon[mask] - tile.west_lon) / 3.0) * cols
+        y = ((tile.north_lat - lat[mask]) / 3.0) * rows
+        x = np.clip(np.floor(x).astype(np.int32), 0, cols - 1)
+        y = np.clip(np.floor(y).astype(np.int32), 0, rows - 1)
+        values = [tile.image.getpixel((int(px), int(py))) for px, py in zip(x, y)]
+        out[mask] = np.array(values, dtype=np.uint16)
+    return out
+
+
+def z0m_from_worldcover(worldcover: Any) -> Any:
+    import numpy as np
+
+    z0m = np.full(worldcover.shape, np.nan, dtype=np.float32)
+    for class_id, roughness in WORLDCOVER_Z0M.items():
+        z0m[worldcover == class_id] = roughness
+    return z0m
 
 
 def grib_available() -> tuple[bool, str | None]:
@@ -200,30 +302,50 @@ def add_surface_fields(nc_path: Path) -> dict[str, Any]:
         dem_tiles = load_dem_tiles()
     except Exception as exc:
         return {"added": False, "error": str(exc)}
+    try:
+        worldcover_tiles = load_worldcover_tiles()
+    except Exception as exc:
+        return {"added": False, "error": str(exc)}
 
     lon2d, lat2d = np.meshgrid(dataset["longitude"].values, dataset["latitude"].values)
     topography = sample_dem(dem_tiles, lon2d, lat2d)
     if not np.isfinite(topography).any():
         return {"added": False, "error": "DEM sampling produced no finite values"}
     topography = np.where(np.isfinite(topography), topography, 0.0).astype(np.float32)
-    landmask = (topography > 1.0).astype(np.float32)
-    z0m = np.where(landmask > 0.5, 0.03, 0.0002).astype(np.float32)
-    z0m = np.where(topography > 200.0, 0.08, z0m).astype(np.float32)
+    landcover = sample_worldcover(worldcover_tiles, lon2d, lat2d)
+    unknown_landcover = landcover == 0
+    if np.all(unknown_landcover):
+        return {"added": False, "error": "ESA WorldCover sampling produced no classified values"}
+    landmask = ((landcover != 80) & ~unknown_landcover).astype(np.float32)
+    dem_land_fallback = ((topography > 1.0) & unknown_landcover).astype(np.float32)
+    landmask = np.where(unknown_landcover, dem_land_fallback, landmask).astype(np.float32)
+    z0m = z0m_from_worldcover(landcover)
+    z0m = np.where(np.isfinite(z0m), z0m, np.where(landmask > 0.5, 0.03, 0.0002)).astype(np.float32)
 
     dataset["topography_m"] = xr.DataArray(topography, dims=("latitude", "longitude"))
+    dataset["landcover_class"] = xr.DataArray(landcover.astype(np.uint16), dims=("latitude", "longitude"))
     dataset["landmask"] = xr.DataArray(landmask, dims=("latitude", "longitude"))
     dataset["z0m"] = xr.DataArray(z0m, dims=("latitude", "longitude"))
     dataset["topography_m"].attrs.update({"units": "m", "source": "Copernicus GLO-30 sampled to AROME parent grid"})
-    dataset["landmask"].attrs.update({"units": "1", "description": "1 land, 0 sea; derived from DEM elevation > 1 m"})
+    dataset["landcover_class"].attrs.update(
+        {
+            "units": "1",
+            "source": "ESA WorldCover 10 m 2021 v200 sampled nearest-neighbor to AROME parent grid",
+            "classes": json.dumps(WORLDCOVER_CLASSES, sort_keys=True),
+        }
+    )
+    dataset["landmask"].attrs.update({"units": "1", "description": "1 land, 0 sea; derived from ESA WorldCover class 80 water, with DEM fallback only for unknown class 0"})
     dataset["z0m"].attrs.update(
         {
             "units": "m",
-            "description": "POC heuristic roughness: sea 0.0002, low land 0.03, rough terrain 0.08",
-            "validation_status": "heuristic_not_truth_source",
-            "replacement_strategy": "Replace with coastline + land cover derived roughness before production.",
+            "description": "Momentum roughness length derived from ESA WorldCover 10 m land-cover classes.",
+            "source": "ESA WorldCover 10 m 2021 v200 class-to-z0m lookup",
+            "lookup_json": json.dumps(WORLDCOVER_Z0M, sort_keys=True),
+            "validation_status": "derived_from_landcover_needs_local_calibration",
+            "calibration_strategy": "Tune class roughness values against local observations and coastline checks before production.",
         }
     )
-    dataset.attrs["surface_fields"] = "Copernicus DEM derived topography_m and landmask; z0m is a POC heuristic."
+    dataset.attrs["surface_fields"] = "Copernicus DEM topography plus ESA WorldCover landcover_class, landmask and z0m."
     tmp_path = nc_path.with_suffix(nc_path.suffix + ".tmp")
     dataset.to_netcdf(tmp_path)
     dataset.close()
@@ -233,7 +355,9 @@ def add_surface_fields(nc_path: Path) -> dict[str, Any]:
         "topography_min_m": float(np.nanmin(topography)),
         "topography_max_m": float(np.nanmax(topography)),
         "land_fraction": float(np.nanmean(landmask)),
-        "z0m_status": "heuristic_not_truth_source",
+        "worldcover_classes": sorted(int(value) for value in np.unique(landcover)),
+        "worldcover_unknown_fraction": float(np.mean(unknown_landcover)),
+        "z0m_status": "derived_from_esa_worldcover_needs_local_calibration",
     }
 
 

@@ -78,10 +78,10 @@
       "id": "surface_pressure",
       "priority": "desired",
       "role": "Hydrostatic/base-state consistency",
-      "coverage_patterns": ["SURFACE_PRESSURE", "PRESSURE"],
+      "coverage_patterns": ["SURFACE_PRESSURE", "P__GROUND", "PRESSURE__GROUND_OR_WATER_SURFACE", "PRESSURE"],
       "level_patterns": ["SURFACE", "GROUND"],
-      "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL"],
-      "notes": "Surface pressure is preferred over MSL pressure."
+      "fallback_patterns": ["PRESSURE_REDUCED_TO_MSL", "P__SEA"],
+      "notes": "P__GROUND is preferred. P__SEA / MSL pressure is only a fallback and should be corrected hydrostatically if used."
     },
     {
       "id": "land_sea_and_roughness",

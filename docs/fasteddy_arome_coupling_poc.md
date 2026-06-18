@@ -10,7 +10,7 @@ This POC makes the Ajaccio test case ready for a GPU solver benchmark:
 2. select the useful AROME 0.025 deg isobaric variables;
 3. download a small Ajaccio parent-data package;
 4. decode the GRIB slices into a compact NetCDF parent state;
-5. add Copernicus GLO-30 derived topography, land mask and roughness fields;
+5. add Copernicus GLO-30 derived topography plus ESA WorldCover land cover, land mask and roughness fields;
 6. write an explicit readiness manifest for the future FastEddy IC/BC converter.
 
 It does not claim to produce final production FastEddy IC/BC files yet.
@@ -129,7 +129,7 @@ For the full current POC:
 
 This downloads 31 GRIB inputs for H+0: 6 isobaric requirements x 5 pressure levels, plus surface temperature.
 
-## Step 3: Add Copernicus GLO-30 DEM
+## Step 3: Add Static Surface Truth Sources
 
 Download the DEM tile needed by the Ajaccio POC bbox:
 
@@ -138,23 +138,36 @@ Download the DEM tile needed by the Ajaccio POC bbox:
   --bbox 8.62 41.82 8.90 42.00
 ```
 
-Output:
+Download the ESA WorldCover 10 m tile needed by the same bbox:
+
+```bash
+.venv/bin/python scripts/download_esa_worldcover_tiles.py \
+  --bbox 8.62 41.82 8.90 42.00
+```
+
+Outputs:
 
 ```text
 data/raw/dem/copernicus_glo30/Copernicus_DSM_COG_10_N41_00_E008_00_DEM.tif
+data/raw/landcover/esa_worldcover_v200_2021/ESA_WorldCover_10m_2021_v200_N42E006_Map.tif
 ```
 
 The parent builder samples this DEM onto the AROME parent grid and derives:
 
 ```text
 topography_m
+landcover_class
 landmask
 z0m
 ```
 
-The roughness field is intentionally simple for the POC: sea `0.0002 m`, low land `0.03 m`, rough terrain above 200 m `0.08 m`.
+Provider strategy:
 
-This roughness field is not considered a truth source. It is a placeholder to make the parent POC structurally complete, and must be replaced with coastline plus land-cover-derived roughness before any production claim.
+- DEM: Copernicus GLO-30, because it is global, stable and already used by the WindNinja pipeline.
+- Land cover: ESA WorldCover 10 m 2021 v200, because it is global, coastal-friendly, cloud optimized and much finer than CORINE 100 m.
+- Fallback/context: CORINE Land Cover 2018 100 m can be useful for Europe-wide QA, but it is too coarse to be the primary source for windsurf beach/coast roughness.
+
+`z0m` is now derived from ESA WorldCover classes through an explicit lookup table. It is no longer an invented constant field. The lookup still needs local calibration against observations and coastline QA before production.
 
 ## Step 4: Build The Parent NetCDF
 
@@ -182,7 +195,9 @@ height_m
 potential_temperature
 pressure_pa
 surface_temperature
+surface_pressure, when the AROME P__GROUND / pressure-at-ground coverage has been downloaded
 topography_m
+landcover_class
 landmask
 z0m
 ```
@@ -254,13 +269,13 @@ solver_input_directly_runnable = false
 production_truth_ready = false
 ```
 
-The parent dataset has no invented meteorology: wind, temperature, humidity, geopotential and surface temperature come from AROME GRIB files. The remaining non-truth POC field is `z0m`, which is a roughness heuristic until replaced by land cover/coastline data.
+The parent dataset has no invented meteorology: wind, temperature, humidity, geopotential and surface temperature come from AROME GRIB files. Surface pressure is expected from AROME `P__GROUND` or `PRESSURE__GROUND_OR_WATER_SURFACE` on the next authenticated refresh. Surface properties come from Copernicus GLO-30 plus ESA WorldCover 10 m; `z0m` is land-cover-derived but still requires local calibration before production.
 
 ## Known Limits Before A Real FastEddy Run
 
 - `VV__ISOBARIC` is pressure vertical velocity in `Pa/s`; the final converter must convert or remap it if FastEddy requires geometric vertical velocity.
 - `Z__ISOBARIC` is geopotential; the POC derives `height_m = Z / 9.80665`.
-- `surface_pressure` is still not provided as a source field in the current mapping.
-- `z0m` is a POC heuristic and must be replaced with a real land-cover/coastline roughness product.
+- `surface_pressure` is mapped to AROME `P__GROUND` / `PRESSURE__GROUND_OR_WATER_SURFACE`, but the current local generated NetCDF must be refreshed with an authenticated Meteo-France key to include it.
+- `z0m` now comes from ESA WorldCover classes, but the class-to-roughness lookup must be locally calibrated.
 - The current file is a parent-state NetCDF, not a complete FastEddy `FE_Bndys` / `FE_interp` package.
 - The next step is the IC/BC writer plus a real Ajaccio/Bonifacio GPU benchmark against the WindNinja baseline.
