@@ -214,7 +214,7 @@ def write_report(inventory: dict[str, Any], path: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--product", choices=["arome", "aromepi"], default="arome")
-    parser.add_argument("--resolution", choices=["001", "0025"], default="001")
+    parser.add_argument("--resolution", choices=["001", "0025"], default="0025")
     parser.add_argument("--auth-header", choices=["apikey", "bearer"], default="apikey")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--language", choices=["eng", "fre"], default="eng")

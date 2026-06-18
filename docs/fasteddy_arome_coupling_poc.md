@@ -4,31 +4,50 @@
 
 FastEddy is only useful for CorseWind if it is driven by a credible 3D atmospheric parent, not by a single AROME 10 m wind layer.
 
-This POC prepares the first four steps needed to become test-ready:
+This POC makes the Ajaccio test case ready for a GPU solver benchmark:
 
-1. inventory all AROME WCS coverages currently exposed by Meteo-France;
-2. map those coverages to FastEddy parent-model requirements;
-3. produce/download a mini Ajaccio AROME parent-data package;
-4. build an explicit parent-schema/manifest for the future FastEddy IC/BC converter.
+1. inventory the current Meteo-France AROME WCS coverages;
+2. select the useful AROME 0.025 deg isobaric variables;
+3. download a small Ajaccio parent-data package;
+4. decode the GRIB slices into a compact NetCDF parent state;
+5. add Copernicus GLO-30 derived topography, land mask and roughness fields;
+6. write an explicit readiness manifest for the future FastEddy IC/BC converter.
 
-It does not claim to produce final production IC/BC files yet.
+It does not claim to produce final production FastEddy IC/BC files yet.
 
-## Why the Current AROME Layer Is Not Enough
+## Why AROME 10 m Is Not Enough
 
-The current operational layer downloads only:
+The operational Wind2D/WindNinja path can work from:
 
 ```text
-WIND_SPEED / U / V at height(10)
+U / V / WIND_SPEED at height(10)
 ```
 
-That is enough for WindNinja and useful for QES smoke tests, but not enough for a professional FastEddy run. FastEddy needs a 3D parent state with wind profiles, thermodynamics, humidity, pressure/height, lateral boundary evolution and surface parameters.
+That is useful for WindNinja and for visualization, but not enough for a professional FastEddy run. FastEddy needs a 3D parent state with wind profiles, temperature or potential temperature, humidity, pressure or height, lateral-boundary evolution and surface parameters.
+
+## Environment
+
+Install the benchmark dependencies:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-benchmark.txt
+```
+
+Provide the Meteo-France API key through `.env`:
+
+```text
+METEOFRANCE_API_KEY=...
+```
+
+Do not commit `.env` or generated data.
 
 ## Step 1: Inventory AROME
 
-With a Meteo-France API key in `.env`:
+Use AROME `0025`, not `001`. The 0.025 deg product exposes the isobaric 3D fields needed for the parent POC.
 
 ```bash
-python3 scripts/inventory_arome_fasteddy_inputs.py \
+.venv/bin/python scripts/inventory_arome_fasteddy_inputs.py \
   --product arome \
   --resolution 0025 \
   --capabilities-output data/raw/arome_fasteddy_capabilities.xml
@@ -41,71 +60,7 @@ data/processed/benchmarks/fasteddy/arome_fasteddy_inventory.json
 reports/fasteddy_arome_inventory.md
 ```
 
-The report tells us whether each FastEddy requirement is available as a real 3D field, only as a 10 m fallback, or missing.
-
-## Step 2: Requirements Mapping
-
-The mapping lives in:
-
-```text
-benchmarks/fasteddy/arome_to_fasteddy_requirements.json
-```
-
-Core required fields:
-
-- 3D U wind;
-- 3D V wind;
-- 3D temperature or potential temperature;
-- 3D humidity;
-- pressure/geopotential information to map vertical levels to height.
-
-Desired fields:
-
-- vertical velocity;
-- surface pressure;
-- surface or skin temperature.
-
-External required surface fields if AROME does not expose them cleanly:
-
-- land/sea mask;
-- roughness length;
-- land cover / coastline;
-- DEM.
-
-## Step 3: Prepare Ajaccio Mini Case
-
-After the inventory exists:
-
-```bash
-python3 scripts/prepare_arome_fasteddy_poc.py \
-  --product arome \
-  --resolution 0025 \
-  --bbox 8.62 41.82 8.90 42.00 \
-  --lead-hours 0
-```
-
-This writes:
-
-```text
-data/processed/benchmarks/fasteddy/arome_poc/arome_fasteddy_poc_download_plan.json
-data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_schema.json
-reports/fasteddy_arome_poc_readiness.md
-```
-
-To attempt the downloads:
-
-```bash
-python3 scripts/prepare_arome_fasteddy_poc.py \
-  --product arome \
-  --resolution 0025 \
-  --bbox 8.62 41.82 8.90 42.00 \
-  --lead-hours 0 \
-  --download
-```
-
-The script intentionally marks 10 m variables as fallback, not production-ready fields.
-
-For the current public API, AROME `0025` exposes useful isobaric fields such as:
+The current useful fields are:
 
 ```text
 U__ISOBARIC
@@ -114,18 +69,45 @@ VV__ISOBARIC
 T__ISOBARIC
 HU__ISOBARIC
 Z__ISOBARIC
+T__GROUND
 ```
 
-Meteo-France WCS requires a single pressure slice per request. The POC therefore downloads one GRIB per variable and pressure level. Default planned levels are:
+## Step 2: Build The Download Plan
+
+The mapping lives in:
+
+```text
+benchmarks/fasteddy/arome_to_fasteddy_requirements.json
+```
+
+Build the Ajaccio mini-case plan:
+
+```bash
+.venv/bin/python scripts/prepare_arome_fasteddy_poc.py \
+  --product arome \
+  --resolution 0025 \
+  --bbox 8.62 41.82 8.90 42.00 \
+  --lead-hours 0
+```
+
+Outputs:
+
+```text
+data/processed/benchmarks/fasteddy/arome_poc/arome_fasteddy_poc_download_plan.json
+data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_schema.json
+reports/fasteddy_arome_poc_readiness.md
+```
+
+Meteo-France WCS requires a single `pressure(...)` slice per request. The default planned levels are:
 
 ```text
 850, 700, 600, 500, 300 hPa
 ```
 
-Use `--pressure-levels-hpa` to limit a test run, for example:
+For a small smoke test:
 
 ```bash
-python3 scripts/prepare_arome_fasteddy_poc.py \
+.venv/bin/python scripts/prepare_arome_fasteddy_poc.py \
   --product arome \
   --resolution 0025 \
   --bbox 8.62 41.82 8.90 42.00 \
@@ -134,33 +116,126 @@ python3 scripts/prepare_arome_fasteddy_poc.py \
   --download
 ```
 
-## Step 4: Build Parent POC Manifest
+For the full current POC:
 
 ```bash
-python3 scripts/build_fasteddy_parent_poc.py
+.venv/bin/python scripts/prepare_arome_fasteddy_poc.py \
+  --product arome \
+  --resolution 0025 \
+  --bbox 8.62 41.82 8.90 42.00 \
+  --lead-hours 0 \
+  --download
+```
+
+This downloads 31 GRIB inputs for H+0: 6 isobaric requirements x 5 pressure levels, plus surface temperature.
+
+## Step 3: Add Copernicus GLO-30 DEM
+
+Download the DEM tile needed by the Ajaccio POC bbox:
+
+```bash
+.venv/bin/python scripts/download_copernicus_dem_tiles.py \
+  --bbox 8.62 41.82 8.90 42.00
+```
+
+Output:
+
+```text
+data/raw/dem/copernicus_glo30/Copernicus_DSM_COG_10_N41_00_E008_00_DEM.tif
+```
+
+The parent builder samples this DEM onto the AROME parent grid and derives:
+
+```text
+topography_m
+landmask
+z0m
+```
+
+The roughness field is intentionally simple for the POC: sea `0.0002 m`, low land `0.03 m`, rough terrain above 200 m `0.08 m`.
+
+## Step 4: Build The Parent NetCDF
+
+```bash
+.venv/bin/python scripts/build_fasteddy_parent_poc.py
 ```
 
 Outputs:
 
 ```text
-data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc_manifest.json
 data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc.nc
+data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc_manifest.json
 ```
 
-The NetCDF is only written when readable fallback GeoTIFFs exist. GRIB 3D fields are currently reported as `unsupported_grib_inputs`; decoding them into a true 4D parent package is the next implementation step.
-
-## Readiness Decision
-
-Use the POC report as the gate:
+The NetCDF contains:
 
 ```text
-production_fasteddy_ready = true
+u
+v
+w
+temperature
+relative_humidity
+geopotential_or_height
+height_m
+potential_temperature
+pressure_pa
+surface_temperature
+topography_m
+landmask
+z0m
 ```
 
-only when required fields are available as direct 3D fields, not fallback 10 m fields.
+Current validated POC dimensions:
 
-If required fields are missing or fallback-only, FastEddy should not be treated as product-ready. The next move is either:
+```text
+pressure_hpa: 5
+latitude: 8
+longitude: 12
+pressure levels: 850, 700, 600, 500, 300 hPa
+expected_grib_inputs: 31
+decoded_grib_inputs: 31
+```
 
-- add the missing AROME product/resolution/source;
-- decode GRIB 3D fields and build true IC/BC files;
-- or park FastEddy and continue with QES/WindNinja.
+Current readiness gate:
+
+```text
+fasteddy_parent_test_ready = true
+production_fasteddy_ready = false
+```
+
+`production_fasteddy_ready` remains false until we generate the final FastEddy IC/BC files and run the solver.
+
+## Validation Command
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+import xarray as xr
+
+manifest = json.load(open("data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc_manifest.json"))
+print(manifest["fasteddy_parent_test_ready"])
+print(manifest["expected_grib_inputs"], manifest["decoded_grib_inputs"])
+print(manifest["surface_fields"])
+
+ds = xr.open_dataset("data/processed/benchmarks/fasteddy/arome_poc/fasteddy_parent_poc.nc")
+print(dict(ds.sizes))
+print(list(ds.data_vars))
+print([float(x) for x in ds.pressure_hpa.values])
+PY
+```
+
+Expected result:
+
+```text
+True
+31 31
+surface_fields.added = True
+```
+
+## Known Limits Before A Real FastEddy Run
+
+- `VV__ISOBARIC` is pressure vertical velocity in `Pa/s`; the final converter must convert or remap it if FastEddy requires geometric vertical velocity.
+- `Z__ISOBARIC` is geopotential; the POC derives `height_m = Z / 9.80665`.
+- `surface_pressure` is still not provided as a source field in the current mapping.
+- The current file is a parent-state NetCDF, not a complete FastEddy `FE_Bndys` / `FE_interp` package.
+- The next step is the IC/BC writer plus a real Ajaccio/Bonifacio GPU benchmark against the WindNinja baseline.
