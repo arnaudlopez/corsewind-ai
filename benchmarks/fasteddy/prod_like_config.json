@@ -1,0 +1,37 @@
+{
+  "format": "corsewind.fasteddy.prod_like_config.v1",
+  "objective": "Prepare prod-like FastEddy real-case packages from the validated AROME parent dataset.",
+  "defaults": {
+    "surface_resolution_m": 25,
+    "solver_horizontal_resolution_m": 50,
+    "vertical_cell_m": 5,
+    "vertical_levels": 120,
+    "timesteps": 7200,
+    "dt_s": 0.05,
+    "output_frequency_steps": 1200,
+    "mpi_ranks": 1,
+    "domain_padding_km": 1.5
+  },
+  "surface": {
+    "dem": "Copernicus GLO-30",
+    "landcover": "ESA WorldCover 10 m 2021 v200",
+    "roughness_lookup": "benchmarks/fasteddy/worldcover_z0m_corse_v1.csv",
+    "calibration_status": "initial_professional_lookup_needs_local_observation_tuning"
+  },
+  "zones": [
+    {
+      "id": "ajaccio_bay",
+      "label": "Ajaccio bay prod-like FastEddy test",
+      "center_wgs84": [8.77, 41.9],
+      "size_km": [12, 10],
+      "enabled": true,
+      "purpose": "First prod-like coastal windsurf case using validated AROME parent data, Copernicus DEM and ESA WorldCover surface roughness."
+    }
+  ],
+  "external_fasteddy_tools": {
+    "geospec_script": "scripts/python_utilities/coupler/GeoSpec.py",
+    "simgrid_script": "scripts/python_utilities/coupler/SimGrid.py",
+    "genicbcs_script": "scripts/python_utilities/coupler/GenICBCs.py",
+    "documentation": "https://fasteddy-model.readthedocs.io/en/latest/Tutorials/cases_real/WRF_coupling_case0.html"
+  }
+}

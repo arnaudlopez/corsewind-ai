@@ -119,3 +119,5 @@ See `docs/qes_winds_benchmark.md` for the optional QES-Winds GPU benchmark again
 See `docs/fasteddy_benchmark.md` for the optional FastEddy GPU LES smoke benchmark on the same Ajaccio and Bonifacio zones.
 
 See `docs/fasteddy_arome_coupling_poc.md` for the AROME 3D inventory and parent-data POC required before FastEddy can be evaluated as a serious forecast engine.
+
+See `docs/fasteddy_prod_like_pipeline.md` for the prod-like FastEddy real-case package generator, GeoSpec/SimGrid/ICBC handoff, and remaining production gates.
