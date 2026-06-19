@@ -29,6 +29,7 @@ const VIEW_BOUNDS = [
 const INITIAL_ZOOM = 8;
 const KNOTS_PER_MPS = 1.943844492;
 const DEFAULT_SCALE_MAX_KT = 14;
+const DISPLAY_TIME_ZONE = "Europe/Paris";
 const CFD_INFLUENCE_RADIUS_M = 260;
 const CFD_SIGMA_M = 105;
 const SESSION_CLASSES = {
@@ -2235,7 +2236,7 @@ function formatHour(iso) {
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
@@ -2243,7 +2244,7 @@ function formatClock(iso) {
   return new Date(iso).toLocaleString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
@@ -2252,7 +2253,7 @@ function formatForecastDay(iso) {
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
@@ -2262,8 +2263,82 @@ function formatRunStamp(iso) {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
+}
+
+function formatDayNavParts(iso) {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: DISPLAY_TIME_ZONE,
+    day: "2-digit",
+    month: "short",
+  }).formatToParts(new Date(iso));
+  return {
+    day: parts.find((part) => part.type === "day")?.value || "--",
+    month: (parts.find((part) => part.type === "month")?.value || "").replace(".", ""),
+  };
+}
+
+function localDateParts(iso) {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const value = (type) => parts.find((part) => part.type === type)?.value || "00";
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+    hour: Number(value("hour")),
+    minute: Number(value("minute")),
+  };
+}
+
+function localDayKey(iso) {
+  const parts = localDateParts(iso);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function localTimeMinutes(iso) {
+  const parts = localDateParts(iso);
+  return parts.hour * 60 + parts.minute;
+}
+
+function forecastDayGroups(steps) {
+  const groups = new Map();
+  for (const step of steps || []) {
+    if (!step?.valid_time_utc) continue;
+    const key = localDayKey(step.valid_time_utc);
+    if (!groups.has(key)) groups.set(key, { key, steps: [], firstMs: Infinity, lastMs: -Infinity });
+    const group = groups.get(key);
+    const ms = new Date(step.valid_time_utc).getTime();
+    group.steps.push(step);
+    group.firstMs = Math.min(group.firstMs, ms);
+    group.lastMs = Math.max(group.lastMs, ms);
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      steps: group.steps.sort((a, b) => new Date(a.valid_time_utc).getTime() - new Date(b.valid_time_utc).getTime()),
+    }))
+    .sort((a, b) => a.firstMs - b.firstMs);
+}
+
+function closestStepInDay(day, referenceStep) {
+  const steps = day?.steps || [];
+  if (!steps.length) return null;
+  if (!referenceStep?.valid_time_utc) return steps[0];
+  const targetMinutes = localTimeMinutes(referenceStep.valid_time_utc);
+  return steps.reduce((best, step) => {
+    const bestGap = Math.abs(localTimeMinutes(best.valid_time_utc) - targetMinutes);
+    const stepGap = Math.abs(localTimeMinutes(step.valid_time_utc) - targetMinutes);
+    return stepGap < bestGap ? step : best;
+  }, steps[0]);
 }
 
 function hasWindNinja50Step(overlay, leadHour) {
@@ -2854,24 +2929,99 @@ function buildForecastButtons(payload, overlay) {
   const modelShortLabel = rawLayerLabel(modelKey);
   const steps = model.forecast_steps || [];
   strip.dataset.model = modelKey;
-  steps.forEach((step, index) => {
+  const activeStep = forecastStepByLead(model, overlay.activeLeadHour) || steps[0];
+  const days = forecastDayGroups(steps);
+  const activeDayKey = activeStep?.valid_time_utc ? localDayKey(activeStep.valid_time_utc) : days[0]?.key;
+  const activeDayIndex = Math.max(0, days.findIndex((day) => day.key === activeDayKey));
+  const activeDay = days[activeDayIndex] || days[0] || { steps };
+  const daySteps = activeDay.steps || steps;
+  const selectStep = (step) => {
+    if (!step) return;
+    const leadHour = Number(step.lead_hour);
+    const aromeIndex = forecastIndexByLead(payload, leadHour);
+    overlay.setStep(aromeIndex >= 0 ? aromeIndex : overlay.stepIndex, leadHour);
+    buildForecastButtons(payload, overlay);
+    syncLayerControls(overlay);
+    updateReadout(payload, overlay);
+  };
+  const buildDayNav = (day, direction) => {
+    const button = document.createElement("button");
+    button.className = `forecast-day-nav forecast-day-nav-${direction}`;
+    button.type = "button";
+    const isDisabled = !day?.steps?.length;
+    button.disabled = isDisabled;
+    button.setAttribute("aria-disabled", String(isDisabled));
+    const dateParts = day?.steps?.[0] ? formatDayNavParts(day.steps[0].valid_time_utc) : { day: "--", month: "" };
+    const dayNumber = document.createElement("strong");
+    dayNumber.textContent = dateParts.day;
+    const month = document.createElement("span");
+    month.textContent = dateParts.month;
+    button.append(dayNumber, month);
+    if (day?.lastMs < Date.now() - 15 * 60 * 1000) button.classList.add("past");
+    button.title = day?.steps?.length
+      ? `${direction === "prev" ? "Jour précédent" : "Jour suivant"} · ${formatForecastDay(day.steps[0].valid_time_utc)}`
+      : direction === "prev"
+        ? "Aucun jour précédent disponible"
+        : "Aucun jour suivant disponible";
+    button.setAttribute("aria-label", button.title);
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      selectStep(closestStepInDay(day, activeStep));
+    });
+    return button;
+  };
+  const shell = document.createElement("div");
+  shell.className = "forecast-timeline-shell";
+  strip.appendChild(shell);
+  shell.appendChild(buildDayNav(days[activeDayIndex - 1], "prev"));
+  const main = document.createElement("div");
+  main.className = "forecast-timeline-main";
+  shell.appendChild(main);
+  if (activeStep) {
+    const detail = document.createElement("div");
+    detail.className = "forecast-selection";
+    detail.setAttribute("aria-live", "polite");
+    const modelLabel = document.createElement("span");
+    modelLabel.className = "forecast-selection-model";
+    modelLabel.textContent = modelShortLabel;
+    const valid = document.createElement("strong");
+    valid.textContent = `${formatForecastDay(activeStep.valid_time_utc)} ${formatClock(activeStep.valid_time_utc)}`;
+    const lead = document.createElement("span");
+    lead.textContent = `H+${activeStep.lead_hour}`;
+    const run = document.createElement("span");
+    run.textContent = `Run ${formatRunStamp(model.run_time_utc)}`;
+    detail.append(modelLabel, valid, lead, run);
+    main.appendChild(detail);
+  }
+  const track = document.createElement("div");
+  track.className = "forecast-track";
+  track.setAttribute("role", "listbox");
+  track.setAttribute("aria-label", `Échéances ${modelShortLabel} ${activeDay?.steps?.[0] ? formatForecastDay(activeDay.steps[0].valid_time_utc) : ""}`);
+  main.appendChild(track);
+  shell.appendChild(buildDayNav(days[activeDayIndex + 1], "next"));
+  let activeButton = null;
+  daySteps.forEach((step, index) => {
     const leadHour = Number(step.lead_hour);
     const hasWindNinja = hasWindNinja50Step(overlay, leadHour);
     const isPast = new Date(step.valid_time_utc).getTime() < Date.now() - 15 * 60 * 1000;
     const button = document.createElement("button");
-    button.className = `forecast-step${leadHour === Number(overlay.activeLeadHour) ? " active" : ""}${hasWindNinja ? " windninja-ready" : ""}${isPast ? " past" : ""}`;
+    button.className = `forecast-step${leadHour === Number(overlay.activeLeadHour) ? " active" : ""}${hasWindNinja ? " windninja-ready" : ""}${isPast ? " past" : ""}${index % 2 ? " label-bottom" : " label-top"}`;
     button.type = "button";
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(leadHour === Number(overlay.activeLeadHour)));
+    if (leadHour === Number(overlay.activeLeadHour)) activeButton = button;
     button.dataset.leadHour = String(leadHour);
     button.dataset.model = modelKey;
-    const time = document.createElement("strong");
-    time.textContent = formatClock(step.valid_time_utc);
-    const meta = document.createElement("span");
-    meta.textContent = `H+${leadHour}`;
-    const day = document.createElement("em");
-    day.textContent = formatForecastDay(step.valid_time_utc);
-    const run = document.createElement("small");
-    run.textContent = `${modelShortLabel} ${formatRunStamp(model.run_time_utc)}`;
-    button.append(time, meta, day, run);
+    const top = document.createElement("span");
+    top.className = "forecast-step-label forecast-step-label-top";
+    const marker = document.createElement("span");
+    marker.className = "forecast-step-marker";
+    const bottom = document.createElement("span");
+    bottom.className = "forecast-step-label forecast-step-label-bottom";
+    const hourText = formatClock(step.valid_time_utc);
+    if (index % 2) bottom.textContent = hourText;
+    else top.textContent = hourText;
+    button.append(top, marker, bottom);
     button.title =
       `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)} · ` +
       `run ${modelShortLabel} ${formatRunStamp(model.run_time_utc)} · ` +
@@ -2882,15 +3032,15 @@ function buildForecastButtons(payload, overlay) {
         `calculée par le run ${modelShortLabel} du ${formatRunStamp(model.run_time_utc)}`
     );
     button.addEventListener("click", () => {
-      const aromeIndex = forecastIndexByLead(payload, leadHour);
-      overlay.setStep(aromeIndex >= 0 ? aromeIndex : overlay.stepIndex, leadHour);
-      for (const child of strip.children) child.classList.remove("active");
-      button.classList.add("active");
-      buildForecastButtons(payload, overlay);
-      updateReadout(payload, overlay);
+      selectStep(step);
     });
-    strip.appendChild(button);
+    track.appendChild(button);
   });
+  if (activeButton) {
+    requestAnimationFrame(() => {
+      activeButton.scrollIntoView({ block: "nearest", inline: "center" });
+    });
+  }
 }
 
 function bindMapReadout(map, overlay) {
