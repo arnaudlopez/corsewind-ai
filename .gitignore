@@ -16,6 +16,10 @@ visualizations/wind2d/arome-corsica-latest.json
 visualizations/wind2d/aromepi-corsica-latest.json
 visualizations/wind2d/moloch-corsica-latest.json
 visualizations/wind2d/icon2i-corsica-latest.json
+visualizations/wind2d/arome-corsica-latest.json.gz
+visualizations/wind2d/aromepi-corsica-latest.json.gz
+visualizations/wind2d/moloch-corsica-latest.json.gz
+visualizations/wind2d/icon2i-corsica-latest.json.gz
 visualizations/wind2d/tiles/
 visualizations/wind2d/windninja-corsica-data*/
 visualizations/wind2d/windninja-corsica-tiles*/

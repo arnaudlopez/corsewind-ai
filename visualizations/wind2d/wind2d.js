@@ -2,6 +2,7 @@ const DATA_VERSION = new URLSearchParams(window.location.search).get("v") || Str
 const RASTER_ENABLED = new URLSearchParams(window.location.search).get("raster") !== "0";
 const versionedDataUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(DATA_VERSION)}`;
 const cacheBustedUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}poll=${Date.now()}`;
+const gzipJsonUrl = (url) => url.replace(/\.json(?=([?#]|$))/, ".json.gz");
 const AROME_DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
 const AROMEPI_DATA_URL = versionedDataUrl("./aromepi-corsica-latest.json");
 const DATA_URL = AROMEPI_DATA_URL;
@@ -402,7 +403,7 @@ class AromeWindOverlay extends L.Layer {
     const col = ((latlng.lng - minLon) / (maxLon - minLon)) * (cols - 1);
     const speed = bilinearGrid(step.speed_ms, row, col, rows, cols);
     if (speed === null) return null;
-    const meanSpeed = bilinearGrid(step.mean_speed_ms, row, col, rows, cols);
+    const meanSpeed = bilinearGrid(step.mean_speed_ms || step.speed_ms, row, col, rows, cols);
     const gustSpeed = bilinearGrid(step.gust_speed_ms, row, col, rows, cols);
     const u = bilinearGrid(step.mean_u_ms || step.u_ms, row, col, rows, cols);
     const v = bilinearGrid(step.mean_v_ms || step.v_ms, row, col, rows, cols);
@@ -1619,7 +1620,7 @@ async function ensureRawModelLoaded(overlay, layer) {
   syncLayerControls(overlay);
   overlay.rawLayerLoadPromises[layer] = (async () => {
     try {
-      const payload = await fetchOptionalJson(url);
+      const payload = await fetchOptionalJson(url, false, true);
       if (!payload) throw new Error(`Unable to load ${url}`);
       return setRawModelPayload(overlay, layer, payload);
     } catch (error) {
@@ -3567,9 +3568,8 @@ async function main() {
 
   L.control.zoom({ position: "topleft" }).addTo(map);
 
-  const response = await fetch(DATA_URL);
-  if (!response.ok) throw new Error(`Unable to load ${DATA_URL}`);
-  const payload = await response.json();
+  const payload = await fetchJsonWithGzipFallback(DATA_URL);
+  if (!payload) throw new Error(`Unable to load ${DATA_URL}`);
   const overlay = new AromeWindOverlay(payload);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
   overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
@@ -3597,8 +3597,38 @@ async function main() {
   startProgressiveWindNinjaPolling(payload, overlay);
 }
 
-async function fetchOptionalJson(url, bustCache = false) {
+async function fetchGzipJson(url, bustCache = false) {
+  if (!url.includes(".json")) return null;
+  const gzipUrl = gzipJsonUrl(url);
+  if (gzipUrl === url) return null;
+  const response = await fetch(bustCache ? cacheBustedUrl(gzipUrl) : gzipUrl, { cache: bustCache ? "no-store" : "default" });
+  if (!response.ok) return null;
+
+  const contentEncoding = response.headers.get("Content-Encoding") || "";
+  if (contentEncoding.toLowerCase().includes("gzip")) {
+    return await response.json();
+  }
+  if (!response.body || !("DecompressionStream" in window)) return null;
+
+  const decompressed = response.body.pipeThrough(new DecompressionStream("gzip"));
+  return await new Response(decompressed).json();
+}
+
+async function fetchJsonWithGzipFallback(url, bustCache = false) {
   try {
+    const compressed = await fetchGzipJson(url, bustCache);
+    if (compressed) return compressed;
+  } catch (error) {
+    console.debug("Compressed JSON fetch failed, falling back to plain JSON", error);
+  }
+  const response = await fetch(bustCache ? cacheBustedUrl(url) : url, { cache: bustCache ? "no-store" : "default" });
+  if (!response.ok) return null;
+  return await response.json();
+}
+
+async function fetchOptionalJson(url, bustCache = false, gzipFirst = false) {
+  try {
+    if (gzipFirst) return await fetchJsonWithGzipFallback(url, bustCache);
     const response = await fetch(bustCache ? cacheBustedUrl(url) : url, { cache: bustCache ? "no-store" : "default" });
     if (!response.ok) return null;
     return await response.json();

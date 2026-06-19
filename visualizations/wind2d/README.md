@@ -27,6 +27,8 @@ Then open:
 http://127.0.0.1:8769/visualizations/wind2d/
 ```
 
-The page also works with `python3 -m http.server`, but generated data tiles are much more realistic to test through the gzip server.
+The page also works with `python3 -m http.server`. The raw model payloads are
+loaded from generated `.json.gz` companions first, then fall back to plain
+`.json` if needed.
 
 To regenerate the data, run the forecast engine documented in `docs/forecast_update_engine.md`.

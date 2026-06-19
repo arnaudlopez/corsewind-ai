@@ -124,11 +124,16 @@ The viewer expects generated files such as:
 
 ```text
 visualizations/wind2d/arome-corsica-latest.json
+visualizations/wind2d/aromepi-corsica-latest.json.gz
 visualizations/wind2d/moloch-corsica-latest.json
 visualizations/wind2d/icon2i-corsica-latest.json
 visualizations/wind2d/windninja-corsica-data-50m/manifest.json
 visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json
 ```
+
+The forecast engine writes `.json.gz` companions for the raw model payloads.
+Wind2D loads those compressed payloads first and falls back to plain `.json`
+if a compressed file is missing or unsupported.
 
 ## Documentation
 

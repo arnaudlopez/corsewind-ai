@@ -34,9 +34,13 @@ DEFAULT_SESSION_TIMEZONE = "Europe/Paris"
 
 WINDNINJA_50M_ARTIFACTS = {
     "arome_layer": "visualizations/wind2d/arome-corsica-latest.json",
+    "arome_layer_gzip": "visualizations/wind2d/arome-corsica-latest.json.gz",
     "aromepi_layer": "visualizations/wind2d/aromepi-corsica-latest.json",
+    "aromepi_layer_gzip": "visualizations/wind2d/aromepi-corsica-latest.json.gz",
     "moloch_layer": "visualizations/wind2d/moloch-corsica-latest.json",
+    "moloch_layer_gzip": "visualizations/wind2d/moloch-corsica-latest.json.gz",
     "icon2i_layer": "visualizations/wind2d/icon2i-corsica-latest.json",
+    "icon2i_layer_gzip": "visualizations/wind2d/icon2i-corsica-latest.json.gz",
     "color_tiles_manifest": "visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json",
     "data_tiles_manifest": "visualizations/wind2d/windninja-corsica-data-50m/manifest.json",
     "tile_plan_pattern": "data/processed/physics/corsica_windninja_tile_plan_50m_hHH.json",
@@ -335,6 +339,10 @@ def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[s
     )
 
 
+def compress_wind2d_json_command() -> tuple[str, ...]:
+    return ("scripts/compress_wind2d_json.py",)
+
+
 def windninja_50m_commands(
     lead_hour: int,
     max_runtime_min: float,
@@ -585,6 +593,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     if args.enable_icon2i:
         source = args.icon2i_input or os.getenv("ICON2I_SOURCE") or os.getenv("ICON2I_SOURCE_URL")
         commands.append(run_command(icon2i_refresh_command(source, args.icon2i_dataset, icon2i_lead_hours, args.cleanup_raw), args.dry_run))
+    commands.append(run_command(compress_wind2d_json_command(), args.dry_run))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time

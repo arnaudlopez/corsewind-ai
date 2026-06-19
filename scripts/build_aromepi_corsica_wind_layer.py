@@ -232,11 +232,8 @@ def build_payload(
                 "gust_stats_ms": finite_stats(gust_speed),
                 "speed_ms": round_grid(mean_speed),
                 "gust_speed_ms": round_grid(gust_speed),
-                "mean_speed_ms": round_grid(mean_speed),
                 "u_ms": round_grid(mean_u),
                 "v_ms": round_grid(mean_v),
-                "mean_u_ms": round_grid(mean_u),
-                "mean_v_ms": round_grid(mean_v),
             }
         )
 
