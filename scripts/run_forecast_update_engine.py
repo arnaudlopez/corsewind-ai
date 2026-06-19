@@ -21,6 +21,7 @@ from meteo_france_client import coverage_ids, endpoint, load_dotenv, request_api
 
 ROOT = Path(__file__).resolve().parents[1]
 AROME_LAYER = ROOT / "visualizations/wind2d/arome-corsica-latest.json"
+AROMEPI_LAYER = ROOT / "visualizations/wind2d/aromepi-corsica-latest.json"
 MOLOCH_LAYER = ROOT / "visualizations/wind2d/moloch-corsica-latest.json"
 ICON2I_LAYER = ROOT / "visualizations/wind2d/icon2i-corsica-latest.json"
 
@@ -33,6 +34,7 @@ DEFAULT_SESSION_TIMEZONE = "Europe/Paris"
 
 WINDNINJA_50M_ARTIFACTS = {
     "arome_layer": "visualizations/wind2d/arome-corsica-latest.json",
+    "aromepi_layer": "visualizations/wind2d/aromepi-corsica-latest.json",
     "moloch_layer": "visualizations/wind2d/moloch-corsica-latest.json",
     "icon2i_layer": "visualizations/wind2d/icon2i-corsica-latest.json",
     "color_tiles_manifest": "visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json",
@@ -63,7 +65,7 @@ def read_json(path: Path) -> dict[str, Any] | None:
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path = resolve_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(path)
 
@@ -279,27 +281,48 @@ def run_command(args: tuple[str, ...], dry_run: bool) -> dict[str, Any]:
     return result
 
 
-def arome_refresh_command(lead_hours: tuple[str, ...], request_sleep_sec: float) -> tuple[str, ...]:
+def cleanup_raw_args(args: argparse.Namespace) -> tuple[str, ...]:
+    return ("--cleanup-raw",) if args.cleanup_raw else ("--no-cleanup-raw",)
+
+
+def arome_refresh_command(lead_hours: tuple[str, ...], request_sleep_sec: float, cleanup_raw: bool) -> tuple[str, ...]:
     return (
         "scripts/build_arome_corsica_wind_layer.py",
         "--lead-hours",
         *lead_hours,
         "--request-sleep-sec",
         str(request_sleep_sec),
+        "--cleanup-raw" if cleanup_raw else "--no-cleanup-raw",
     )
 
 
-def moloch_refresh_command(source: str | None, lead_hours: tuple[str, ...]) -> tuple[str, ...]:
+def arome_pi_refresh_command(args: argparse.Namespace) -> tuple[str, ...]:
+    return (
+        "scripts/build_aromepi_corsica_wind_layer.py",
+        "--session-start-hour",
+        str(args.session_start_hour),
+        "--session-end-hour",
+        str(args.session_end_hour),
+        "--timezone",
+        args.session_timezone,
+        "--request-sleep-sec",
+        str(args.aromepi_request_sleep_sec),
+        *cleanup_raw_args(args),
+    )
+
+
+def moloch_refresh_command(source: str | None, lead_hours: tuple[str, ...], cleanup_raw: bool) -> tuple[str, ...]:
     source_args = ("--input", source) if source else ()
     lead_args = ("--lead-hours", *lead_hours) if lead_hours else ()
     return (
         "scripts/build_moloch_corsica_wind_layer.py",
         *source_args,
         *lead_args,
+        "--cleanup-raw" if cleanup_raw else "--no-cleanup-raw",
     )
 
 
-def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[str, ...]) -> tuple[str, ...]:
+def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[str, ...], cleanup_raw: bool) -> tuple[str, ...]:
     source_args = ("--input", source) if source else ()
     return (
         "scripts/build_icon2i_corsica_wind_layer.py",
@@ -308,6 +331,7 @@ def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[s
         dataset,
         "--lead-hours",
         *lead_hours,
+        "--cleanup-raw" if cleanup_raw else "--no-cleanup-raw",
     )
 
 
@@ -522,7 +546,9 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
         "current_run_time_utc": None,
         "changed": False,
         "forced": bool(args.force),
+        "cleanup_raw_enabled": bool(args.cleanup_raw),
         "arome_lead_hours": list(arome_lead_hours),
+        "aromepi_enabled": bool(args.enable_aromepi),
         "moloch_enabled": bool(args.enable_moloch),
         "moloch_lead_hours": list(moloch_lead_hours) if moloch_lead_hours else "all_available",
         "icon2i_enabled": bool(args.enable_icon2i),
@@ -546,17 +572,19 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     }
     write_json(args.status_file, status)
 
-    commands.append(run_command(arome_refresh_command(arome_lead_hours, args.arome_request_sleep_sec), args.dry_run))
+    commands.append(run_command(arome_refresh_command(arome_lead_hours, args.arome_request_sleep_sec, args.cleanup_raw), args.dry_run))
+    if args.enable_aromepi:
+        commands.append(run_command(arome_pi_refresh_command(args), args.dry_run))
     if args.enable_moloch:
         source = args.moloch_input or os.getenv("MOLOCH_SOURCE") or os.getenv("MOLOCH_SOURCE_URL")
         if source or not args.moloch_skip_if_missing:
-            commands.append(run_command(moloch_refresh_command(source, moloch_lead_hours), args.dry_run))
+            commands.append(run_command(moloch_refresh_command(source, moloch_lead_hours, args.cleanup_raw), args.dry_run))
         else:
             status["moloch_status"] = "skipped_missing_source"
             status["moloch_hint"] = "Set MOLOCH_SOURCE_URL or pass --moloch-input to build moloch-corsica-latest.json."
     if args.enable_icon2i:
         source = args.icon2i_input or os.getenv("ICON2I_SOURCE") or os.getenv("ICON2I_SOURCE_URL")
-        commands.append(run_command(icon2i_refresh_command(source, args.icon2i_dataset, icon2i_lead_hours), args.dry_run))
+        commands.append(run_command(icon2i_refresh_command(source, args.icon2i_dataset, icon2i_lead_hours, args.cleanup_raw), args.dry_run))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
@@ -658,9 +686,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--once", action="store_true", help="Run one poll cycle and exit.")
     parser.add_argument("--force", action="store_true", help="Run the 50 m pipeline even if the run was already completed.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=True, help="Delete raw weather downloads after derived Wind2D artifacts are published.")
     parser.add_argument("--lead-hours", nargs="+", default=None)
     parser.add_argument("--arome-lead-hour-policy", choices=["session", "all-48"], default="session")
     parser.add_argument("--arome-request-sleep-sec", type=float, default=1.3)
+    parser.add_argument("--enable-aromepi", action=argparse.BooleanOptionalAction, default=True, help="Build the AROME-PI hybrid 15 min nowcast viewer layer.")
+    parser.add_argument("--aromepi-request-sleep-sec", type=float, default=0.2)
     parser.add_argument("--enable-moloch", action="store_true", help="Build the optional MOLOCH 1.2 km viewer layer.")
     parser.add_argument("--moloch-input", default=None, help="Local GRIB/NetCDF/JSON file or direct URL. Defaults to MOLOCH_SOURCE_URL.")
     parser.add_argument("--moloch-lead-hours", nargs="+", default=None)
@@ -674,7 +705,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--windninja-runtime-min", type=float, default=60.0)
     parser.add_argument("--session-timezone", default=DEFAULT_SESSION_TIMEZONE)
     parser.add_argument("--session-start-hour", type=int, default=11)
-    parser.add_argument("--session-end-hour", type=int, default=17)
+    parser.add_argument("--session-end-hour", type=int, default=18)
     parser.add_argument("--session-days", choices=["today", "today-and-tomorrow"], default="today-and-tomorrow")
     parser.add_argument("--today-session-step-hours", type=int, default=1)
     parser.add_argument("--tomorrow-session-step-hours", type=int, default=2)

@@ -3,6 +3,7 @@ const RASTER_ENABLED = new URLSearchParams(window.location.search).get("raster")
 const versionedDataUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(DATA_VERSION)}`;
 const cacheBustedUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}poll=${Date.now()}`;
 const DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
+const AROMEPI_DATA_URL = versionedDataUrl("./aromepi-corsica-latest.json");
 const MOLOCH_DATA_URL = versionedDataUrl("./moloch-corsica-latest.json");
 const ICON2I_DATA_URL = versionedDataUrl("./icon2i-corsica-latest.json");
 const RASTER_TILES_MANIFEST_URL = versionedDataUrl("./tiles/manifest.json");
@@ -53,12 +54,13 @@ const SURFACE_CLASSES = {
 };
 
 class AromeWindOverlay extends L.Layer {
-  constructor(payload, cfdPayload = null, coastalTilePayload = null, bayModelPayload = null, multiscalePlanPayload = null, expandedWindPayload = null, localWindPayload = null, spotGridPayload = null, windNinjaSpotPayload = null, validationPayload = null, regimeQaPayload = null, validationGapsPayload = null, fieldTestPacketPayload = null, rasterTilePayload = null, windNinjaCorsicaTilePayload = null, windNinjaCorsica1mTilePayload = null, windNinjaCorsica50mTilePayload = null, molochPayload = null, icon2iPayload = null) {
+  constructor(payload, cfdPayload = null, coastalTilePayload = null, bayModelPayload = null, multiscalePlanPayload = null, expandedWindPayload = null, localWindPayload = null, spotGridPayload = null, windNinjaSpotPayload = null, validationPayload = null, regimeQaPayload = null, validationGapsPayload = null, fieldTestPacketPayload = null, rasterTilePayload = null, windNinjaCorsicaTilePayload = null, windNinjaCorsica1mTilePayload = null, windNinjaCorsica50mTilePayload = null, molochPayload = null, icon2iPayload = null, aromePiPayload = null) {
     super();
     this.payload = payload;
     this.bbox = payload.bbox_wgs84;
     this.moloch = buildRawWindLayer(molochPayload);
     this.icon2i = buildRawWindLayer(icon2iPayload);
+    this.aromepi = buildRawWindLayer(aromePiPayload);
     this.cfd = buildCfdCorrection(cfdPayload);
     this.coastalTiles = buildCoastalTileLayer(coastalTilePayload);
     this.bayModel = buildBayModelLayer(bayModelPayload);
@@ -79,7 +81,7 @@ class AromeWindOverlay extends L.Layer {
     this.windNinjaCorsicaTiles = buildRasterTileState(windNinjaCorsicaTilePayload);
     this.windNinjaCorsica1mTiles = buildRasterTileState(windNinjaCorsica1mTilePayload);
     this.windNinjaCorsica50mTiles = buildRasterTileState(windNinjaCorsica50mTilePayload);
-    this.visibleLayers = { arome: true, moloch: false, icon2i: false, windninja50: false };
+    this.visibleLayers = { arome: true, aromepi: false, moloch: false, icon2i: false, windninja50: false };
     this.displayMode = "speed";
     this.stepIndex = 0;
     this.activeLeadHour = Number(payload.forecast_steps[0]?.lead_hour ?? 0);
@@ -111,6 +113,10 @@ class AromeWindOverlay extends L.Layer {
 
   get icon2iStep() {
     return forecastStepByLead(this.icon2i, this.activeLeadHour);
+  }
+
+  get aromePiStep() {
+    return forecastStepByLead(this.aromepi, this.activeLeadHour);
   }
 
   get expandedStep() {
@@ -148,7 +154,8 @@ class AromeWindOverlay extends L.Layer {
   }
 
   setLayerVisible(layer, visible) {
-    if (!["arome", "moloch", "icon2i", "windninja50"].includes(layer)) return;
+    if (!["arome", "aromepi", "moloch", "icon2i", "windninja50"].includes(layer)) return;
+    if (layer === "aromepi" && !this.aromepi) return;
     if (layer === "moloch" && !this.moloch) return;
     if (layer === "icon2i" && !this.icon2i) return;
     if (visible) {
@@ -365,6 +372,7 @@ class AromeWindOverlay extends L.Layer {
   }
 
   fieldAt(latlng) {
+    if (this.visibleLayers.aromepi) return this.aromePiFieldAt(latlng, false);
     if (this.visibleLayers.icon2i) return this.icon2iFieldAt(latlng, false);
     if (this.visibleLayers.moloch) return this.molochFieldAt(latlng, false);
     if (!this.visibleLayers.arome) return null;
@@ -381,13 +389,22 @@ class AromeWindOverlay extends L.Layer {
     const col = ((latlng.lng - minLon) / (maxLon - minLon)) * (cols - 1);
     const speed = bilinearGrid(step.speed_ms, row, col, rows, cols);
     if (speed === null) return null;
-    const u = bilinearGrid(step.u_ms, row, col, rows, cols);
-    const v = bilinearGrid(step.v_ms, row, col, rows, cols);
+    const meanSpeed = bilinearGrid(step.mean_speed_ms, row, col, rows, cols);
+    const gustSpeed = bilinearGrid(step.gust_speed_ms, row, col, rows, cols);
+    const u = bilinearGrid(step.mean_u_ms || step.u_ms, row, col, rows, cols);
+    const v = bilinearGrid(step.mean_v_ms || step.v_ms, row, col, rows, cols);
     const flowToDeg = u === null || v === null ? null : windDirectionToDeg(u, v);
     const windFromDeg = flowToDeg === null ? null : (flowToDeg + 180) % 360;
+    const particleSpeed = meanSpeed ?? speed;
     return {
       speed,
       speedKnots: speed * KNOTS_PER_MPS,
+      meanSpeed,
+      meanSpeedKnots: meanSpeed === null ? null : meanSpeed * KNOTS_PER_MPS,
+      gustSpeed: gustSpeed ?? speed,
+      gustSpeedKnots: (gustSpeed ?? speed) * KNOTS_PER_MPS,
+      particleSpeed,
+      particleSpeedKnots: particleSpeed * KNOTS_PER_MPS,
       baseSpeed: speed,
       confidence: defaults.confidence ?? 0.42,
       modelConfidence: defaults.confidence ?? 0.42,
@@ -431,6 +448,17 @@ class AromeWindOverlay extends L.Layer {
       resolutionLabel: "2.2 km",
       confidence: 0.4,
       renderAlpha: 0.58,
+    });
+  }
+
+  aromePiFieldAt(latlng, contextFallback = false) {
+    return this.rawModelFieldAt(this.aromepi, this.aromePiStep, latlng, contextFallback, {
+      sourceType: "aromepi",
+      sourceLabel: "AROME-PI immediat",
+      heightLabel: "10 m AGL",
+      resolutionLabel: "vent moyen 2.5 km / rafales 1 km",
+      confidence: 0.48,
+      renderAlpha: 0.66,
     });
   }
 
@@ -1115,7 +1143,9 @@ class AromeWindOverlay extends L.Layer {
   }
 
   particleFieldAt(latlng) {
-    const field = this.visibleLayers.icon2i
+    const field = this.visibleLayers.aromepi
+      ? this.aromePiFieldAt(latlng, true)
+      : this.visibleLayers.icon2i
       ? this.icon2iFieldAt(latlng, true)
       : this.visibleLayers.moloch
         ? this.molochFieldAt(latlng, true)
@@ -1125,6 +1155,8 @@ class AromeWindOverlay extends L.Layer {
     if (windNinjaSample) {
       field.speedKnots = windNinjaSample.speedKt;
       field.speed = windNinjaSample.speedKt / KNOTS_PER_MPS;
+      field.particleSpeedKnots = windNinjaSample.speedKt;
+      field.particleSpeed = windNinjaSample.speedKt / KNOTS_PER_MPS;
       field.windNinjaRatio = windNinjaSample.ratio;
       field.windNinjaCoverage = windNinjaSample.coverage;
       field.sourceType = "windninja-particle";
@@ -1227,7 +1259,7 @@ class AromeWindOverlay extends L.Layer {
         this.particles[index] = this.seedParticle(size) || particle;
         continue;
       }
-      const speedKnots = field.speedKnots ?? field.speed * KNOTS_PER_MPS;
+      const speedKnots = field.particleSpeedKnots ?? field.speedKnots ?? field.speed * KNOTS_PER_MPS;
       const intensity = Math.max(0, Math.min(1, speedKnots / this.scaleMaxKnots));
       const ratioBoost = Math.max(0.45, Math.min(1.9, field.windNinjaRatio || 1));
       const coverage = Math.max(0.18, Math.min(1, field.windNinjaCoverage || 0.62));
@@ -1471,9 +1503,10 @@ function buildRawWindLayer(payload) {
   };
 }
 
-const RAW_LAYER_KEYS = ["arome", "moloch", "icon2i"];
+const RAW_LAYER_KEYS = ["arome", "aromepi", "moloch", "icon2i"];
 const RAW_LAYER_LABELS = {
   arome: "AROME",
+  aromepi: "AROME-PI",
   moloch: "MOLOCH",
   icon2i: "ICON-2I",
 };
@@ -1511,6 +1544,18 @@ function forecastStepByValidTime(model, validTimeUtc) {
   );
 }
 
+function closestForecastStepByValidTime(model, validTimeUtc) {
+  const exact = forecastStepByValidTime(model, validTimeUtc);
+  if (exact || !model?.forecast_steps?.length || !validTimeUtc) return exact;
+  const targetMs = new Date(validTimeUtc).getTime();
+  if (!Number.isFinite(targetMs)) return null;
+  return model.forecast_steps.reduce((best, step) => {
+    const bestGap = Math.abs(new Date(best.valid_time_utc).getTime() - targetMs);
+    const stepGap = Math.abs(new Date(step.valid_time_utc).getTime() - targetMs);
+    return stepGap < bestGap ? step : best;
+  }, model.forecast_steps[0]);
+}
+
 function setActiveLeadHour(overlay, leadHour) {
   overlay.activeLeadHour = Number(leadHour);
   const aromeIndex = forecastIndexByLead(overlay.payload, overlay.activeLeadHour);
@@ -1518,11 +1563,13 @@ function setActiveLeadHour(overlay, leadHour) {
 }
 
 function rawModelKey(overlay) {
+  if (overlay.visibleLayers.aromepi && overlay.aromepi) return "aromepi";
   if (overlay.visibleLayers.icon2i && overlay.icon2i) return "icon2i";
   return overlay.visibleLayers.moloch && overlay.moloch ? "moloch" : "arome";
 }
 
 function rawModelForKey(overlay, key) {
+  if (key === "aromepi") return overlay.aromepi;
   if (key === "icon2i") return overlay.icon2i;
   if (key === "moloch") return overlay.moloch;
   return overlay.payload;
@@ -1537,14 +1584,15 @@ function activeRawStep(overlay) {
 }
 
 function displayedValidTimeUtc(overlay) {
-  return activeRawStep(overlay)?.valid_time_utc || overlay.step?.valid_time_utc || overlay.molochStep?.valid_time_utc || overlay.icon2iStep?.valid_time_utc || null;
+  return activeRawStep(overlay)?.valid_time_utc || overlay.step?.valid_time_utc || overlay.aromePiStep?.valid_time_utc || overlay.molochStep?.valid_time_utc || overlay.icon2iStep?.valid_time_utc || null;
 }
 
 function equivalentStepForLayer(overlay, layer) {
   const validTimeUtc = displayedValidTimeUtc(overlay);
-  if (layer === "icon2i") return forecastStepByValidTime(overlay.icon2i, validTimeUtc);
-  if (layer === "moloch") return forecastStepByValidTime(overlay.moloch, validTimeUtc);
-  return forecastStepByValidTime(overlay.payload, validTimeUtc);
+  if (layer === "aromepi") return closestForecastStepByValidTime(overlay.aromepi, validTimeUtc);
+  if (layer === "icon2i") return closestForecastStepByValidTime(overlay.icon2i, validTimeUtc);
+  if (layer === "moloch") return closestForecastStepByValidTime(overlay.moloch, validTimeUtc);
+  return closestForecastStepByValidTime(overlay.payload, validTimeUtc);
 }
 
 function buildExpandedWindLayer(payload) {
@@ -2267,6 +2315,17 @@ function formatRunStamp(iso) {
   });
 }
 
+function formatLeadLabel(step) {
+  const minutes = Number.isFinite(Number(step?.lead_minutes))
+    ? Number(step.lead_minutes)
+    : Math.round(Number(step?.lead_hour || 0) * 60);
+  if (minutes % 60 === 0) return `H+${minutes / 60}`;
+  if (minutes < 60) return `+${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `+${hours}h${String(rest).padStart(2, "0")}`;
+}
+
 function formatDayNavParts(iso) {
   const parts = new Intl.DateTimeFormat("fr-FR", {
     timeZone: DISPLAY_TIME_ZONE,
@@ -2437,11 +2496,14 @@ function updateReadout(payload, overlay) {
     refreshCoverageStatus(overlay);
     return;
   }
-  const meanKnots = step.stats_ms.mean * KNOTS_PER_MPS;
-  const maxKnots = step.stats_ms.max * KNOTS_PER_MPS;
-  document.querySelector("#spot-speed").textContent = `${meanKnots.toFixed(0)} kt`;
-  document.querySelector("#spot-detail").textContent =
-    `Moyenne Corse ${model.model_label} · max ${maxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`;
+  const renderMeanKnots = step.stats_ms.mean * KNOTS_PER_MPS;
+  const renderMaxKnots = step.stats_ms.max * KNOTS_PER_MPS;
+  const gustMeanKnots = step.gust_stats_ms ? step.gust_stats_ms.mean * KNOTS_PER_MPS : null;
+  const gustMaxKnots = step.gust_stats_ms ? step.gust_stats_ms.max * KNOTS_PER_MPS : null;
+  document.querySelector("#spot-speed").textContent = `${renderMeanKnots.toFixed(0)} kt`;
+  document.querySelector("#spot-detail").textContent = step.gust_stats_ms
+    ? `Vent moyen Corse ${renderMeanKnots.toFixed(0)} kt · rafales 15 min moy. ${gustMeanKnots.toFixed(0)} kt · max rafale ${gustMaxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`
+    : `Moyenne Corse ${model.model_label} · max ${renderMaxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`;
   updateLegendTitle(overlay.displayMode);
   refreshCoverageStatus(overlay);
 }
@@ -2453,6 +2515,7 @@ function refreshActiveLayerLabel(overlay) {
   const wn50Height = overlay.windNinjaCorsica50mTiles?.source?.output_height_m || 10;
   const activeLayers = [
     overlay.visibleLayers.arome ? "AROME" : null,
+    overlay.visibleLayers.aromepi ? "AROME-PI" : null,
     overlay.visibleLayers.moloch ? "MOLOCH" : null,
     overlay.visibleLayers.icon2i ? "ICON-2I" : null,
     overlay.visibleLayers.windninja50 ? `WN ${wn50Resolution} m / ${wn50Height} m` : null,
@@ -2865,6 +2928,7 @@ function refreshCoverageStatus(overlay) {
   if (!status) return;
   const parts = [];
   parts.push(`AROME ${overlay.visibleLayers.arome ? "ON" : "OFF"}`);
+  parts.push(overlay.aromepi ? `AROME-PI ${overlay.visibleLayers.aromepi ? (overlay.aromePiStep ? "ON" : "hors échéance") : "OFF"}` : "AROME-PI indisponible");
   parts.push(overlay.moloch ? `MOLOCH ${overlay.visibleLayers.moloch ? (overlay.molochStep ? "ON" : "hors échéance") : "OFF"}` : "MOLOCH indisponible");
   parts.push(overlay.icon2i ? `ICON-2I ${overlay.visibleLayers.icon2i ? (overlay.icon2iStep ? "ON" : "hors échéance") : "OFF"}` : "ICON-2I indisponible");
   parts.push(windNinjaStatusLabel(overlay, overlay.windNinjaCorsica50mTiles, "windninja50", "WN 50 m"));
@@ -2987,7 +3051,7 @@ function buildForecastButtons(payload, overlay) {
     const valid = document.createElement("strong");
     valid.textContent = `${formatForecastDay(activeStep.valid_time_utc)} ${formatClock(activeStep.valid_time_utc)}`;
     const lead = document.createElement("span");
-    lead.textContent = `H+${activeStep.lead_hour}`;
+    lead.textContent = formatLeadLabel(activeStep);
     const run = document.createElement("span");
     run.textContent = `Run ${formatRunStamp(model.run_time_utc)}`;
     detail.append(modelLabel, valid, lead, run);
@@ -3025,7 +3089,7 @@ function buildForecastButtons(payload, overlay) {
     button.title =
       `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)} · ` +
       `run ${modelShortLabel} ${formatRunStamp(model.run_time_utc)} · ` +
-      `${hasWindNinja ? "WindNinja 50 m disponible pour H+" + leadHour : `${model.model_label} brut`}`;
+      `${hasWindNinja ? "WindNinja 50 m disponible pour " + formatLeadLabel(step) : `${model.model_label} brut`}`;
     button.setAttribute(
       "aria-label",
       `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)}, ` +
@@ -3169,7 +3233,9 @@ function positionPointInspector(inspector, containerPoint, map) {
 
 function buildPointInspection(latlng, overlay) {
   const aromeField = overlay.aromeFieldAt(latlng, true);
-  const rawField = overlay.visibleLayers.icon2i
+  const rawField = overlay.visibleLayers.aromepi
+    ? overlay.aromePiFieldAt(latlng, true)
+    : overlay.visibleLayers.icon2i
     ? overlay.icon2iFieldAt(latlng, true)
     : overlay.visibleLayers.moloch
       ? overlay.molochFieldAt(latlng, true)
@@ -3179,7 +3245,9 @@ function buildPointInspection(latlng, overlay) {
   if (!rawField || !anyRawLayerVisible(overlay)) return null;
   const label = rawLayerLabel(rawModelKey(overlay));
   const source = `${label} 10 m`;
-  const note = `${label} brut`;
+  const note = rawField.gustSpeedKnots && rawField.meanSpeedKnots
+    ? `rafale ${rawField.gustSpeedKnots.toFixed(1)} kt · moyen ${rawField.meanSpeedKnots.toFixed(1)} kt`
+    : `${label} brut`;
   return {
     source,
     speedText: `${rawField.speedKnots.toFixed(1)} kt`,
@@ -3192,7 +3260,7 @@ function buildPointInspection(latlng, overlay) {
       heightLabel: rawField.heightLabel,
       resolutionLabel: rawField.resolutionLabel,
       latlng,
-      note: "champ brut",
+      note,
     }),
   };
 }
@@ -3254,7 +3322,7 @@ function windNinjaPointInspection(latlng, overlay, aromeField) {
 
 function compactPointDetail({ windFromDeg, note }) {
   const windFrom = windFromDeg === null || windFromDeg === undefined ? "--" : `${Math.round(windFromDeg)}°`;
-  return `de ${windFrom}`;
+  return note ? `de ${windFrom} · ${note}` : `de ${windFrom}`;
 }
 
 function fullPointDetail({ windFromDeg, heightLabel, resolutionLabel, latlng, note }) {
@@ -3329,12 +3397,13 @@ async function main() {
   const response = await fetch(DATA_URL);
   if (!response.ok) throw new Error(`Unable to load ${DATA_URL}`);
   const payload = await response.json();
+  const aromePiPayload = await fetchOptionalJson(AROMEPI_DATA_URL);
   const molochPayload = await fetchOptionalJson(MOLOCH_DATA_URL);
   const icon2iPayload = await fetchOptionalJson(ICON2I_DATA_URL);
   const windNinjaCorsica50mTilePayload =
     (await fetchOptionalJson(WINDNINJA_CORSICA_50M_DATA_MANIFEST_URL)) ||
     (await fetchOptionalJson(WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL));
-  const overlay = new AromeWindOverlay(payload, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, windNinjaCorsica50mTilePayload, molochPayload, icon2iPayload);
+  const overlay = new AromeWindOverlay(payload, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, windNinjaCorsica50mTilePayload, molochPayload, icon2iPayload, aromePiPayload);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
   overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
   applyPreferredForecastLayer(overlay);

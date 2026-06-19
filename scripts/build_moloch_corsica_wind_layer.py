@@ -24,6 +24,7 @@ import numpy as np
 import requests
 
 from meteo_france_client import load_dotenv
+from raw_cache_cleanup import cleanup_message, cleanup_raw_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -477,6 +478,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--download-timeout-sec", type=int, default=180)
     parser.add_argument("--source-label", default=DEFAULT_SOURCE_LABEL)
     parser.add_argument("--copy-source-to-raw", action="store_true", help="Copy a local source into raw-dir for reproducibility.")
+    parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=False, help="Delete raw downloaded/copied source files after the Wind2D JSON has been published.")
     return parser.parse_args()
 
 
@@ -500,6 +502,8 @@ def main() -> None:
             f"wrote {args.output} run={payload['run_time_utc']} "
             f"steps={len(payload['forecast_steps'])} shape={payload['forecast_steps'][0]['shape']}"
         )
+    if args.cleanup_raw:
+        print(cleanup_message(cleanup_raw_dir(args.raw_dir, ROOT)))
 
 
 if __name__ == "__main__":

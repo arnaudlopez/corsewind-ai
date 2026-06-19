@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from meteo_france_client import coverage_ids, endpoint, load_dotenv, request_api
+from raw_cache_cleanup import cleanup_message, cleanup_raw_dir
 from sample_arome_tiff_at_stations import read_float64_tiff
 
 
@@ -184,6 +185,7 @@ def main() -> None:
     parser.add_argument("--bbox", nargs=4, type=float, default=DEFAULT_BBOX, metavar=("MIN_LON", "MIN_LAT", "MAX_LON", "MAX_LAT"))
     parser.add_argument("--lead-hours", nargs="+", type=int, default=list(DEFAULT_LEAD_HOURS))
     parser.add_argument("--request-sleep-sec", type=float, default=0.0, help="Pause after each downloaded WCS raster; useful for API quotas.")
+    parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=False, help="Delete raw downloaded rasters after the Wind2D JSON has been published.")
     args = parser.parse_args()
 
     load_dotenv(args.env_file)
@@ -210,6 +212,8 @@ def main() -> None:
         f"wrote {args.output} run={payload['run_time_utc']} "
         f"steps={len(payload['forecast_steps'])} shape={payload['forecast_steps'][0]['shape']}"
     )
+    if args.cleanup_raw:
+        print(cleanup_message(cleanup_raw_dir(args.raw_dir, Path(__file__).resolve().parents[1])))
 
 
 if __name__ == "__main__":
