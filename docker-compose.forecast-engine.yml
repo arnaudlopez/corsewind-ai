@@ -58,3 +58,34 @@ services:
       - "6"
       - --windninja-runtime-min
       - "60"
+
+  wind2d-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.forecast-engine
+    image: corsewind/forecast-engine:local
+    container_name: corsewind-wind2d-web
+    profiles:
+      - wind2d-web
+    init: true
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+    working_dir: /app
+    volumes:
+      - ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}:/app:ro
+    ports:
+      - "${WIND2D_WEB_PORT:-8769}:8769"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8769/visualizations/wind2d/"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command:
+      - python
+      - scripts/serve_wind2d_compressed.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8769"

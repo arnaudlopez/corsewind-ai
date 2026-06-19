@@ -316,10 +316,19 @@ Avec Portainer en mode Git stack :
 - le stack peut reconstruire l'image depuis le depot a chaque pull ;
 - les variables `METEOFRANCE_API_KEY` et `CORSEWIND_HOST_ROOT` doivent etre definies dans l'environnement du stack Portainer ;
 - `CORSEWIND_HOST_ROOT` doit pointer vers le checkout hote cree par Portainer ;
+- le serveur web Wind2D est optionnel : definir `COMPOSE_PROFILES=wind2d-web` pour l'activer, et `WIND2D_WEB_PORT=8769` pour choisir le port hote ;
 - le compose ne depend pas d'un fichier `.env` committe ; en local, Docker Compose lit toujours `.env` automatiquement pour l'interpolation ;
 - les donnees generees restent dans le depot monte, pas dans l'image ;
 - lors d'un redeploiement, Portainer envoie `SIGTERM`, le moteur arrete la commande enfant si necessaire, ecrit un statut `stopping` si l'arret tombe au milieu d'une commande, puis relache le lock ;
 - le nouveau container reprend depuis `data/processed/diagnostics/forecast_update_engine_state.json`.
+
+Le service web optionnel sert le viewer avec gzip via :
+
+```text
+http://<host>:<WIND2D_WEB_PORT>/visualizations/wind2d/
+```
+
+Sans `COMPOSE_PROFILES=wind2d-web`, aucun serveur web n'est lance.
 
 Le container expose aussi un healthcheck :
 

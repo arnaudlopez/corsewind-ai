@@ -131,11 +131,28 @@ For Portainer Git stacks, set these environment variables in the stack:
 ```bash
 METEOFRANCE_API_KEY=...
 CORSEWIND_HOST_ROOT=/host/path/to/Portainer/checkout/CorseWind.ai
+# Optional, starts the Wind2D web viewer service:
+COMPOSE_PROFILES=wind2d-web
+WIND2D_WEB_PORT=8769
 ```
 
 `CORSEWIND_HOST_ROOT` must be the host-side checkout path used by Portainer. It cannot be `/app`, because child WindNinja containers are launched by the host Docker daemon and need host paths for bind mounts.
 
 The compose file does not require a committed `.env` file. Locally, Docker Compose still reads `.env` automatically for variable interpolation. In Portainer, define the same variables in the stack environment.
+
+By default the compose stack only starts the forecast engine. To expose Wind2D from the same stack, enable the `wind2d-web` profile:
+
+```bash
+COMPOSE_PROFILES=wind2d-web docker compose -f docker-compose.forecast-engine.yml up --build
+```
+
+The viewer is then available on:
+
+```text
+http://<host>:8769/visualizations/wind2d/
+```
+
+Use `WIND2D_WEB_PORT` to change the host port.
 
 Generated data and diagnostics are stored in the mounted repository tree, especially `data/processed/`, `visualizations/wind2d/`, `reports/`, and `tmp/`. On pull/redeploy, the old container receives `SIGTERM`, the engine releases its lock, and the new container resumes from `data/processed/diagnostics/forecast_update_engine_state.json`.
 
