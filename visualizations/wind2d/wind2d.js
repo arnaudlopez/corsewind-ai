@@ -3,6 +3,8 @@ const RASTER_ENABLED = new URLSearchParams(window.location.search).get("raster")
 const versionedDataUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(DATA_VERSION)}`;
 const cacheBustedUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}poll=${Date.now()}`;
 const DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
+const MOLOCH_DATA_URL = versionedDataUrl("./moloch-corsica-latest.json");
+const ICON2I_DATA_URL = versionedDataUrl("./icon2i-corsica-latest.json");
 const RASTER_TILES_MANIFEST_URL = versionedDataUrl("./tiles/manifest.json");
 const WINDNINJA_CORSICA_50M_DATA_MANIFEST_URL = versionedDataUrl("./windninja-corsica-data-50m/manifest.json");
 const WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL = versionedDataUrl("./windninja-corsica-tiles-50m/manifest.json");
@@ -27,6 +29,7 @@ const VIEW_BOUNDS = [
 const INITIAL_ZOOM = 8;
 const KNOTS_PER_MPS = 1.943844492;
 const DEFAULT_SCALE_MAX_KT = 14;
+const DISPLAY_TIME_ZONE = "Europe/Paris";
 const CFD_INFLUENCE_RADIUS_M = 260;
 const CFD_SIGMA_M = 105;
 const SESSION_CLASSES = {
@@ -50,10 +53,12 @@ const SURFACE_CLASSES = {
 };
 
 class AromeWindOverlay extends L.Layer {
-  constructor(payload, cfdPayload = null, coastalTilePayload = null, bayModelPayload = null, multiscalePlanPayload = null, expandedWindPayload = null, localWindPayload = null, spotGridPayload = null, windNinjaSpotPayload = null, validationPayload = null, regimeQaPayload = null, validationGapsPayload = null, fieldTestPacketPayload = null, rasterTilePayload = null, windNinjaCorsicaTilePayload = null, windNinjaCorsica1mTilePayload = null, windNinjaCorsica50mTilePayload = null) {
+  constructor(payload, cfdPayload = null, coastalTilePayload = null, bayModelPayload = null, multiscalePlanPayload = null, expandedWindPayload = null, localWindPayload = null, spotGridPayload = null, windNinjaSpotPayload = null, validationPayload = null, regimeQaPayload = null, validationGapsPayload = null, fieldTestPacketPayload = null, rasterTilePayload = null, windNinjaCorsicaTilePayload = null, windNinjaCorsica1mTilePayload = null, windNinjaCorsica50mTilePayload = null, molochPayload = null, icon2iPayload = null) {
     super();
     this.payload = payload;
     this.bbox = payload.bbox_wgs84;
+    this.moloch = buildRawWindLayer(molochPayload);
+    this.icon2i = buildRawWindLayer(icon2iPayload);
     this.cfd = buildCfdCorrection(cfdPayload);
     this.coastalTiles = buildCoastalTileLayer(coastalTilePayload);
     this.bayModel = buildBayModelLayer(bayModelPayload);
@@ -74,9 +79,10 @@ class AromeWindOverlay extends L.Layer {
     this.windNinjaCorsicaTiles = buildRasterTileState(windNinjaCorsicaTilePayload);
     this.windNinjaCorsica1mTiles = buildRasterTileState(windNinjaCorsica1mTilePayload);
     this.windNinjaCorsica50mTiles = buildRasterTileState(windNinjaCorsica50mTilePayload);
-    this.visibleLayers = { arome: true, windninja50: false };
+    this.visibleLayers = { arome: true, moloch: false, icon2i: false, windninja50: false };
     this.displayMode = "speed";
     this.stepIndex = 0;
+    this.activeLeadHour = Number(payload.forecast_steps[0]?.lead_hour ?? 0);
     this.scaleMaxKnots = DEFAULT_SCALE_MAX_KT;
     this.particlesEnabled = true;
     this.particleOpacity = 3;
@@ -92,19 +98,28 @@ class AromeWindOverlay extends L.Layer {
   }
 
   get step() {
-    return this.payload.forecast_steps[this.stepIndex];
+    return forecastStepByLead(this.payload, this.activeLeadHour);
   }
 
   get localStep() {
     return this.localWind?.forecast_steps?.[this.stepIndex] || null;
   }
 
+  get molochStep() {
+    return forecastStepByLead(this.moloch, this.activeLeadHour);
+  }
+
+  get icon2iStep() {
+    return forecastStepByLead(this.icon2i, this.activeLeadHour);
+  }
+
   get expandedStep() {
     return this.expandedWind?.forecast_steps?.[this.stepIndex] || null;
   }
 
-  setStep(index) {
+  setStep(index, leadHour = null) {
     this.stepIndex = index;
+    this.activeLeadHour = Number(leadHour ?? this.payload.forecast_steps[index]?.lead_hour ?? this.activeLeadHour);
     applyPreferredForecastLayer(this);
     this.heatDirty = true;
     this.windNinjaDataTileCache.clear();
@@ -133,8 +148,25 @@ class AromeWindOverlay extends L.Layer {
   }
 
   setLayerVisible(layer, visible) {
-    if (!["arome", "windninja50"].includes(layer)) return;
+    if (!["arome", "moloch", "icon2i", "windninja50"].includes(layer)) return;
+    if (layer === "moloch" && !this.moloch) return;
+    if (layer === "icon2i" && !this.icon2i) return;
+    if (visible) {
+      const equivalentStep = equivalentStepForLayer(this, layer);
+      if (!equivalentStep) return;
+      setActiveLeadHour(this, equivalentStep.lead_hour);
+    }
+    if (visible && isRawLayerKey(layer)) {
+      for (const rawLayer of RAW_LAYER_KEYS) this.visibleLayers[rawLayer] = rawLayer === layer;
+      this.visibleLayers.windninja50 = false;
+    }
+    if (visible && layer === "windninja50") {
+      for (const rawLayer of RAW_LAYER_KEYS) this.visibleLayers[rawLayer] = false;
+    }
     this.visibleLayers[layer] = Boolean(visible);
+    if (!anyRawLayerVisible(this) && !this.visibleLayers.windninja50) {
+      this.visibleLayers.arome = true;
+    }
     this.syncCanvasVisibility();
     this.syncParticleVisibility();
     this.heatDirty = true;
@@ -185,12 +217,12 @@ class AromeWindOverlay extends L.Layer {
 
   syncCanvasVisibility() {
     if (!this.canvas) return;
-    this.canvas.hidden = !this.visibleLayers.arome || this.displayMode !== "speed";
+    this.canvas.hidden = !anyRawLayerVisible(this) || this.displayMode !== "speed";
   }
 
   syncParticleVisibility() {
     if (!this.particleCanvas) return;
-    const hasWindLayer = this.visibleLayers.arome || this.visibleLayers.windninja50;
+    const hasWindLayer = anyRawLayerVisible(this) || this.visibleLayers.windninja50;
     this.particleCanvas.hidden = !this.particlesEnabled || !hasWindLayer;
   }
 
@@ -333,41 +365,73 @@ class AromeWindOverlay extends L.Layer {
   }
 
   fieldAt(latlng) {
+    if (this.visibleLayers.icon2i) return this.icon2iFieldAt(latlng, false);
+    if (this.visibleLayers.moloch) return this.molochFieldAt(latlng, false);
     if (!this.visibleLayers.arome) return null;
     return this.aromeFieldAt(latlng, false);
   }
 
-  aromeFieldAt(latlng, contextFallback = false) {
-    const [minLon, minLat, maxLon, maxLat] = this.bbox;
+  rawModelFieldAt(model, step, latlng, contextFallback = false, defaults = {}) {
+    if (!model || !step?.shape || !model.bbox_wgs84) return null;
+    const [minLon, minLat, maxLon, maxLat] = model.bbox_wgs84;
     if (latlng.lng < minLon || latlng.lng > maxLon || latlng.lat < minLat || latlng.lat > maxLat) return null;
-    const rows = this.step.shape[0];
-    const cols = this.step.shape[1];
+    const rows = step.shape[0];
+    const cols = step.shape[1];
     const row = ((maxLat - latlng.lat) / (maxLat - minLat)) * (rows - 1);
     const col = ((latlng.lng - minLon) / (maxLon - minLon)) * (cols - 1);
-    const speed = this.bilinear(this.step.speed_ms, row, col);
+    const speed = bilinearGrid(step.speed_ms, row, col, rows, cols);
     if (speed === null) return null;
-    const u = this.bilinear(this.step.u_ms, row, col);
-    const v = this.bilinear(this.step.v_ms, row, col);
+    const u = bilinearGrid(step.u_ms, row, col, rows, cols);
+    const v = bilinearGrid(step.v_ms, row, col, rows, cols);
     const flowToDeg = u === null || v === null ? null : windDirectionToDeg(u, v);
     const windFromDeg = flowToDeg === null ? null : (flowToDeg + 180) % 360;
-    const correctedSpeed = speed;
-    const modelConfidence = 0.42;
-    const contextAlpha = contextFallback ? 0.42 : 0.62;
     return {
-      speed: correctedSpeed,
-      speedKnots: correctedSpeed * KNOTS_PER_MPS,
+      speed,
+      speedKnots: speed * KNOTS_PER_MPS,
       baseSpeed: speed,
-      confidence: modelConfidence,
-      modelConfidence,
-      renderAlpha: contextAlpha,
-      sourceType: "arome",
-      sourceLabel: "AROME contexte Corse",
-      heightLabel: "10 m AGL",
-      resolutionLabel: "~1 km",
+      confidence: defaults.confidence ?? 0.42,
+      modelConfidence: defaults.confidence ?? 0.42,
+      renderAlpha: contextFallback ? 0.42 : defaults.renderAlpha ?? 0.62,
+      sourceType: defaults.sourceType || "raw",
+      sourceLabel: defaults.sourceLabel || model.model_label || "Modèle brut",
+      heightLabel: defaults.heightLabel || `${model.height_agl_m || 10} m AGL`,
+      resolutionLabel: defaults.resolutionLabel || model.resolution || "~1 km",
       windFromDeg,
       flowToDeg,
       contextFallback,
     };
+  }
+
+  aromeFieldAt(latlng, contextFallback = false) {
+    return this.rawModelFieldAt(
+      { bbox_wgs84: this.bbox, model_label: "AROME contexte Corse", height_agl_m: 10, resolution: "~1 km" },
+      this.step,
+      latlng,
+      contextFallback,
+      { sourceType: "arome", sourceLabel: "AROME contexte Corse", heightLabel: "10 m AGL", resolutionLabel: "~1 km" }
+    );
+  }
+
+  molochFieldAt(latlng, contextFallback = false) {
+    return this.rawModelFieldAt(this.moloch, this.molochStep, latlng, contextFallback, {
+      sourceType: "moloch",
+      sourceLabel: "MOLOCH Italie",
+      heightLabel: "10 m AGL",
+      resolutionLabel: "1.2 km",
+      confidence: 0.4,
+      renderAlpha: 0.58,
+    });
+  }
+
+  icon2iFieldAt(latlng, contextFallback = false) {
+    return this.rawModelFieldAt(this.icon2i, this.icon2iStep, latlng, contextFallback, {
+      sourceType: "icon2i",
+      sourceLabel: "ICON-2I Italie",
+      heightLabel: "10 m AGL",
+      resolutionLabel: "2.2 km",
+      confidence: 0.4,
+      renderAlpha: 0.58,
+    });
   }
 
   localFieldAt(latlng) {
@@ -694,7 +758,7 @@ class AromeWindOverlay extends L.Layer {
   }
 
   drawHeat() {
-    if (!this.visibleLayers.arome) return;
+    if (!anyRawLayerVisible(this)) return;
     if (this.displayMode !== "speed") return;
     const size = this.map.getSize();
     if (this.heatDirty) {
@@ -1029,7 +1093,7 @@ class AromeWindOverlay extends L.Layer {
   draw() {
     const size = this.map.getSize();
     this.ctx.clearRect(0, 0, size.x, size.y);
-    if (this.visibleLayers.arome && this.displayMode === "speed") this.drawHeat();
+    if (anyRawLayerVisible(this) && this.displayMode === "speed") this.drawHeat();
   }
 
   startParticleLoop() {
@@ -1051,7 +1115,11 @@ class AromeWindOverlay extends L.Layer {
   }
 
   particleFieldAt(latlng) {
-    const field = this.aromeFieldAt(latlng, true);
+    const field = this.visibleLayers.icon2i
+      ? this.icon2iFieldAt(latlng, true)
+      : this.visibleLayers.moloch
+        ? this.molochFieldAt(latlng, true)
+        : this.aromeFieldAt(latlng, true);
     if (!field || field.flowToDeg === null || field.flowToDeg === undefined) return null;
     const windNinjaSample = this.windNinjaDataSampleAt(latlng);
     if (windNinjaSample) {
@@ -1392,6 +1460,93 @@ function buildLocalWindLayer(payload) {
   };
 }
 
+function buildRawWindLayer(payload) {
+  if (!payload?.forecast_steps?.length || !payload.bbox_wgs84) return null;
+  return {
+    ...payload,
+    forecast_steps: payload.forecast_steps.map((step) => ({
+      ...step,
+      lead_hour: Number(step.lead_hour),
+    })),
+  };
+}
+
+const RAW_LAYER_KEYS = ["arome", "moloch", "icon2i"];
+const RAW_LAYER_LABELS = {
+  arome: "AROME",
+  moloch: "MOLOCH",
+  icon2i: "ICON-2I",
+};
+
+function isRawLayerKey(layer) {
+  return RAW_LAYER_KEYS.includes(layer);
+}
+
+function rawLayerLabel(layer) {
+  return RAW_LAYER_LABELS[layer] || "Modèle";
+}
+
+function anyRawLayerVisible(overlay) {
+  return RAW_LAYER_KEYS.some((layer) => Boolean(overlay.visibleLayers?.[layer]));
+}
+
+function forecastStepByLead(model, leadHour) {
+  if (!model?.forecast_steps?.length || leadHour === null || leadHour === undefined) return null;
+  return model.forecast_steps.find((step) => Number(step.lead_hour) === Number(leadHour)) || null;
+}
+
+function forecastIndexByLead(model, leadHour) {
+  if (!model?.forecast_steps?.length || leadHour === null || leadHour === undefined) return -1;
+  return model.forecast_steps.findIndex((step) => Number(step.lead_hour) === Number(leadHour));
+}
+
+function forecastStepByValidTime(model, validTimeUtc) {
+  if (!model?.forecast_steps?.length || !validTimeUtc) return null;
+  const targetMs = new Date(validTimeUtc).getTime();
+  if (!Number.isFinite(targetMs)) return null;
+  return (
+    model.forecast_steps.find((step) => step.valid_time_utc === validTimeUtc) ||
+    model.forecast_steps.find((step) => new Date(step.valid_time_utc).getTime() === targetMs) ||
+    null
+  );
+}
+
+function setActiveLeadHour(overlay, leadHour) {
+  overlay.activeLeadHour = Number(leadHour);
+  const aromeIndex = forecastIndexByLead(overlay.payload, overlay.activeLeadHour);
+  if (aromeIndex >= 0) overlay.stepIndex = aromeIndex;
+}
+
+function rawModelKey(overlay) {
+  if (overlay.visibleLayers.icon2i && overlay.icon2i) return "icon2i";
+  return overlay.visibleLayers.moloch && overlay.moloch ? "moloch" : "arome";
+}
+
+function rawModelForKey(overlay, key) {
+  if (key === "icon2i") return overlay.icon2i;
+  if (key === "moloch") return overlay.moloch;
+  return overlay.payload;
+}
+
+function activeRawModel(overlay) {
+  return rawModelForKey(overlay, rawModelKey(overlay));
+}
+
+function activeRawStep(overlay) {
+  return forecastStepByLead(activeRawModel(overlay), overlay.activeLeadHour);
+}
+
+function displayedValidTimeUtc(overlay) {
+  return activeRawStep(overlay)?.valid_time_utc || overlay.step?.valid_time_utc || overlay.molochStep?.valid_time_utc || overlay.icon2iStep?.valid_time_utc || null;
+}
+
+function equivalentStepForLayer(overlay, layer) {
+  const validTimeUtc = displayedValidTimeUtc(overlay);
+  if (layer === "icon2i") return forecastStepByValidTime(overlay.icon2i, validTimeUtc);
+  if (layer === "moloch") return forecastStepByValidTime(overlay.moloch, validTimeUtc);
+  return forecastStepByValidTime(overlay.payload, validTimeUtc);
+}
+
 function buildExpandedWindLayer(payload) {
   if (!payload?.forecast_steps?.length || !payload.domain?.bounds_wgs84) return null;
   const [minLon, minLat, maxLon, maxLat] = payload.domain.bounds_wgs84;
@@ -1452,7 +1607,7 @@ function buildRasterTileState(payload) {
 }
 
 function rasterStepKey(overlay) {
-  const lead = overlay.step?.lead_hour;
+  const lead = overlay.activeLeadHour;
   const match = overlay.rasterTiles?.steps?.find((step) => Number(step.lead_hour) === Number(lead));
   return match?.key || `h${String(Number(lead || 0)).padStart(2, "0")}`;
 }
@@ -1514,7 +1669,7 @@ function windNinjaCorsicaMode(overlay) {
 }
 
 function windNinjaCorsicaStepKey(overlay, tileState) {
-  const lead = overlay.step?.lead_hour;
+  const lead = overlay.activeLeadHour;
   const match = tileState?.steps?.find((step) => Number(step.lead_hour) === Number(lead));
   return match?.key || null;
 }
@@ -2081,7 +2236,7 @@ function formatHour(iso) {
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
@@ -2089,7 +2244,7 @@ function formatClock(iso) {
   return new Date(iso).toLocaleString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
@@ -2098,7 +2253,7 @@ function formatForecastDay(iso) {
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }
 
@@ -2108,8 +2263,82 @@ function formatRunStamp(iso) {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "Europe/Paris",
+    timeZone: DISPLAY_TIME_ZONE,
   });
+}
+
+function formatDayNavParts(iso) {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: DISPLAY_TIME_ZONE,
+    day: "2-digit",
+    month: "short",
+  }).formatToParts(new Date(iso));
+  return {
+    day: parts.find((part) => part.type === "day")?.value || "--",
+    month: (parts.find((part) => part.type === "month")?.value || "").replace(".", ""),
+  };
+}
+
+function localDateParts(iso) {
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const value = (type) => parts.find((part) => part.type === type)?.value || "00";
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+    hour: Number(value("hour")),
+    minute: Number(value("minute")),
+  };
+}
+
+function localDayKey(iso) {
+  const parts = localDateParts(iso);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function localTimeMinutes(iso) {
+  const parts = localDateParts(iso);
+  return parts.hour * 60 + parts.minute;
+}
+
+function forecastDayGroups(steps) {
+  const groups = new Map();
+  for (const step of steps || []) {
+    if (!step?.valid_time_utc) continue;
+    const key = localDayKey(step.valid_time_utc);
+    if (!groups.has(key)) groups.set(key, { key, steps: [], firstMs: Infinity, lastMs: -Infinity });
+    const group = groups.get(key);
+    const ms = new Date(step.valid_time_utc).getTime();
+    group.steps.push(step);
+    group.firstMs = Math.min(group.firstMs, ms);
+    group.lastMs = Math.max(group.lastMs, ms);
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      steps: group.steps.sort((a, b) => new Date(a.valid_time_utc).getTime() - new Date(b.valid_time_utc).getTime()),
+    }))
+    .sort((a, b) => a.firstMs - b.firstMs);
+}
+
+function closestStepInDay(day, referenceStep) {
+  const steps = day?.steps || [];
+  if (!steps.length) return null;
+  if (!referenceStep?.valid_time_utc) return steps[0];
+  const targetMinutes = localTimeMinutes(referenceStep.valid_time_utc);
+  return steps.reduce((best, step) => {
+    const bestGap = Math.abs(localTimeMinutes(best.valid_time_utc) - targetMinutes);
+    const stepGap = Math.abs(localTimeMinutes(step.valid_time_utc) - targetMinutes);
+    return stepGap < bestGap ? step : best;
+  }, steps[0]);
 }
 
 function hasWindNinja50Step(overlay, leadHour) {
@@ -2119,13 +2348,18 @@ function hasWindNinja50Step(overlay, leadHour) {
 }
 
 function windNinjaModesAvailable(overlay) {
-  return Boolean(overlay.visibleLayers.windninja50 && hasWindNinja50Step(overlay, overlay.step?.lead_hour));
+  return Boolean(overlay.visibleLayers.windninja50 && hasWindNinja50Step(overlay, overlay.activeLeadHour));
 }
 
 function applyPreferredForecastLayer(overlay) {
-  const windNinjaAvailable = hasWindNinja50Step(overlay, overlay.step?.lead_hour);
-  overlay.visibleLayers.windninja50 = windNinjaAvailable;
-  overlay.visibleLayers.arome = !windNinjaAvailable;
+  const windNinjaAvailable = hasWindNinja50Step(overlay, overlay.activeLeadHour);
+  if (windNinjaAvailable) {
+    overlay.visibleLayers.windninja50 = true;
+    for (const rawLayer of RAW_LAYER_KEYS) overlay.visibleLayers[rawLayer] = false;
+  } else {
+    overlay.visibleLayers.windninja50 = false;
+    if (!anyRawLayerVisible(overlay)) overlay.visibleLayers.arome = true;
+  }
   if (!windNinjaAvailable) overlay.displayMode = "speed";
   overlay.heatDirty = true;
   overlay.windNinjaDataTileCache?.clear();
@@ -2183,23 +2417,31 @@ function chooseInitialForecastIndex(payload) {
 }
 
 function updateReadout(payload, overlay) {
-  const step = overlay.step;
   refreshActiveLayerLabel(overlay);
-  document.querySelector("#forcing").textContent = payload.model_label;
-  document.querySelector("#solver").textContent = new Date(payload.run_time_utc).toLocaleString("fr-FR", {
+  const model = activeRawModel(overlay) || payload;
+  const step = activeRawStep(overlay);
+  document.querySelector("#forcing").textContent = model.model_label;
+  document.querySelector("#solver").textContent = new Date(model.run_time_utc || payload.run_time_utc).toLocaleString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     timeZone: "Europe/Paris",
   });
-  document.querySelector("#wind-regime").textContent = "AROME brut";
+  document.querySelector("#wind-regime").textContent = `${rawLayerLabel(rawModelKey(overlay))} brut`;
   document.querySelector("#validation-status").textContent = "WN 50 m";
+  if (!step) {
+    document.querySelector("#spot-speed").textContent = "--";
+    document.querySelector("#spot-detail").textContent = `${model.model_label} hors échéance H+${overlay.activeLeadHour}`;
+    updateLegendTitle(overlay.displayMode);
+    refreshCoverageStatus(overlay);
+    return;
+  }
   const meanKnots = step.stats_ms.mean * KNOTS_PER_MPS;
   const maxKnots = step.stats_ms.max * KNOTS_PER_MPS;
   document.querySelector("#spot-speed").textContent = `${meanKnots.toFixed(0)} kt`;
   document.querySelector("#spot-detail").textContent =
-    `Moyenne Corse AROME · max ${maxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`;
+    `Moyenne Corse ${model.model_label} · max ${maxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`;
   updateLegendTitle(overlay.displayMode);
   refreshCoverageStatus(overlay);
 }
@@ -2211,6 +2453,8 @@ function refreshActiveLayerLabel(overlay) {
   const wn50Height = overlay.windNinjaCorsica50mTiles?.source?.output_height_m || 10;
   const activeLayers = [
     overlay.visibleLayers.arome ? "AROME" : null,
+    overlay.visibleLayers.moloch ? "MOLOCH" : null,
+    overlay.visibleLayers.icon2i ? "ICON-2I" : null,
     overlay.visibleLayers.windninja50 ? `WN ${wn50Resolution} m / ${wn50Height} m` : null,
   ].filter(Boolean);
   label.textContent = activeLayers.length ? activeLayers.join(" + ") : "Aucune";
@@ -2343,7 +2587,7 @@ function syncModeControls(overlay) {
     tab.classList.toggle("active", mode === overlay.displayMode);
     tab.setAttribute("aria-disabled", String(disabled));
     tab.title = disabled
-      ? "AROME s'affiche uniquement en vitesse. Dévente et accélération sont disponibles avec WindNinja."
+      ? "Les modèles bruts s'affichent uniquement en vitesse. Dévente et accélération sont disponibles avec WindNinja."
       : "Mode WindNinja";
   });
 }
@@ -2365,14 +2609,29 @@ function syncLayerControls(overlay) {
   for (const button of buttons) {
     const layer = button.dataset.layer;
     if (layer && Object.prototype.hasOwnProperty.call(overlay.visibleLayers, layer)) {
+      const equivalentStep = equivalentStepForLayer(overlay, layer);
+      const model = rawModelForKey(overlay, layer);
+      const unavailable = isRawLayerKey(layer) && layer !== "arome" && (!model || !equivalentStep);
       const visible = Boolean(overlay.visibleLayers[layer]);
       button.classList.toggle("active", visible);
+      button.classList.toggle("disabled", unavailable);
+      button.disabled = unavailable;
       button.setAttribute("aria-pressed", String(visible));
+      button.setAttribute("aria-disabled", String(unavailable));
+      if (unavailable) {
+        const label = rawLayerLabel(layer);
+        button.title = model
+          ? `${label} hors tranche ${formatForecastDay(displayedValidTimeUtc(overlay))} ${formatClock(displayedValidTimeUtc(overlay))}`
+          : `${label} indisponible: générez ${layer === "icon2i" ? "icon2i" : layer}-corsica-latest.json`;
+      } else if (isRawLayerKey(layer) && layer !== "arome") {
+        const label = rawLayerLabel(layer);
+        button.title = `${label} H+${equivalentStep.lead_hour} disponible pour ${formatForecastDay(equivalentStep.valid_time_utc)} ${formatClock(equivalentStep.valid_time_utc)}`;
+      }
     }
   }
 }
 
-function bindLayerControl(overlay) {
+function bindLayerControl(overlay, payload) {
   const buttons = [...document.querySelectorAll(".layer-toggle, .map-layer-button")];
   syncLayerControls(overlay);
   buttons.forEach((button) => {
@@ -2381,6 +2640,8 @@ function bindLayerControl(overlay) {
       const nextVisible = !button.classList.contains("active");
       overlay.setLayerVisible(layer, nextVisible);
       syncLayerControls(overlay);
+      buildForecastButtons(payload, overlay);
+      updateReadout(payload, overlay);
     });
   });
 }
@@ -2604,6 +2865,8 @@ function refreshCoverageStatus(overlay) {
   if (!status) return;
   const parts = [];
   parts.push(`AROME ${overlay.visibleLayers.arome ? "ON" : "OFF"}`);
+  parts.push(overlay.moloch ? `MOLOCH ${overlay.visibleLayers.moloch ? (overlay.molochStep ? "ON" : "hors échéance") : "OFF"}` : "MOLOCH indisponible");
+  parts.push(overlay.icon2i ? `ICON-2I ${overlay.visibleLayers.icon2i ? (overlay.icon2iStep ? "ON" : "hors échéance") : "OFF"}` : "ICON-2I indisponible");
   parts.push(windNinjaStatusLabel(overlay, overlay.windNinjaCorsica50mTiles, "windninja50", "WN 50 m"));
   status.childNodes[1].nodeValue = parts.join(" + ");
 }
@@ -2661,39 +2924,123 @@ function buildSpotButtons(map, overlay) {
 function buildForecastButtons(payload, overlay) {
   const strip = document.querySelector(".forecast-strip");
   strip.innerHTML = "";
-  payload.forecast_steps.forEach((step, index) => {
-    const hasWindNinja = hasWindNinja50Step(overlay, step.lead_hour);
+  const model = activeRawModel(overlay) || payload;
+  const modelKey = rawModelKey(overlay);
+  const modelShortLabel = rawLayerLabel(modelKey);
+  const steps = model.forecast_steps || [];
+  strip.dataset.model = modelKey;
+  const activeStep = forecastStepByLead(model, overlay.activeLeadHour) || steps[0];
+  const days = forecastDayGroups(steps);
+  const activeDayKey = activeStep?.valid_time_utc ? localDayKey(activeStep.valid_time_utc) : days[0]?.key;
+  const activeDayIndex = Math.max(0, days.findIndex((day) => day.key === activeDayKey));
+  const activeDay = days[activeDayIndex] || days[0] || { steps };
+  const daySteps = activeDay.steps || steps;
+  const selectStep = (step) => {
+    if (!step) return;
+    const leadHour = Number(step.lead_hour);
+    const aromeIndex = forecastIndexByLead(payload, leadHour);
+    overlay.setStep(aromeIndex >= 0 ? aromeIndex : overlay.stepIndex, leadHour);
+    buildForecastButtons(payload, overlay);
+    syncLayerControls(overlay);
+    updateReadout(payload, overlay);
+  };
+  const buildDayNav = (day, direction) => {
+    const button = document.createElement("button");
+    button.className = `forecast-day-nav forecast-day-nav-${direction}`;
+    button.type = "button";
+    const isDisabled = !day?.steps?.length;
+    button.disabled = isDisabled;
+    button.setAttribute("aria-disabled", String(isDisabled));
+    const dateParts = day?.steps?.[0] ? formatDayNavParts(day.steps[0].valid_time_utc) : { day: "--", month: "" };
+    const dayNumber = document.createElement("strong");
+    dayNumber.textContent = dateParts.day;
+    const month = document.createElement("span");
+    month.textContent = dateParts.month;
+    button.append(dayNumber, month);
+    if (day?.lastMs < Date.now() - 15 * 60 * 1000) button.classList.add("past");
+    button.title = day?.steps?.length
+      ? `${direction === "prev" ? "Jour précédent" : "Jour suivant"} · ${formatForecastDay(day.steps[0].valid_time_utc)}`
+      : direction === "prev"
+        ? "Aucun jour précédent disponible"
+        : "Aucun jour suivant disponible";
+    button.setAttribute("aria-label", button.title);
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      selectStep(closestStepInDay(day, activeStep));
+    });
+    return button;
+  };
+  const shell = document.createElement("div");
+  shell.className = "forecast-timeline-shell";
+  strip.appendChild(shell);
+  shell.appendChild(buildDayNav(days[activeDayIndex - 1], "prev"));
+  const main = document.createElement("div");
+  main.className = "forecast-timeline-main";
+  shell.appendChild(main);
+  if (activeStep) {
+    const detail = document.createElement("div");
+    detail.className = "forecast-selection";
+    detail.setAttribute("aria-live", "polite");
+    const modelLabel = document.createElement("span");
+    modelLabel.className = "forecast-selection-model";
+    modelLabel.textContent = modelShortLabel;
+    const valid = document.createElement("strong");
+    valid.textContent = `${formatForecastDay(activeStep.valid_time_utc)} ${formatClock(activeStep.valid_time_utc)}`;
+    const lead = document.createElement("span");
+    lead.textContent = `H+${activeStep.lead_hour}`;
+    const run = document.createElement("span");
+    run.textContent = `Run ${formatRunStamp(model.run_time_utc)}`;
+    detail.append(modelLabel, valid, lead, run);
+    main.appendChild(detail);
+  }
+  const track = document.createElement("div");
+  track.className = "forecast-track";
+  track.setAttribute("role", "listbox");
+  track.setAttribute("aria-label", `Échéances ${modelShortLabel} ${activeDay?.steps?.[0] ? formatForecastDay(activeDay.steps[0].valid_time_utc) : ""}`);
+  main.appendChild(track);
+  shell.appendChild(buildDayNav(days[activeDayIndex + 1], "next"));
+  let activeButton = null;
+  daySteps.forEach((step, index) => {
+    const leadHour = Number(step.lead_hour);
+    const hasWindNinja = hasWindNinja50Step(overlay, leadHour);
     const isPast = new Date(step.valid_time_utc).getTime() < Date.now() - 15 * 60 * 1000;
     const button = document.createElement("button");
-    button.className = `forecast-step${index === overlay.stepIndex ? " active" : ""}${hasWindNinja ? " windninja-ready" : ""}${isPast ? " past" : ""}`;
+    button.className = `forecast-step${leadHour === Number(overlay.activeLeadHour) ? " active" : ""}${hasWindNinja ? " windninja-ready" : ""}${isPast ? " past" : ""}${index % 2 ? " label-bottom" : " label-top"}`;
     button.type = "button";
-    button.dataset.leadHour = String(step.lead_hour);
-    const time = document.createElement("strong");
-    time.textContent = formatClock(step.valid_time_utc);
-    const meta = document.createElement("span");
-    meta.textContent = `H+${step.lead_hour}`;
-    const day = document.createElement("em");
-    day.textContent = formatForecastDay(step.valid_time_utc);
-    const run = document.createElement("small");
-    run.textContent = `Run ${formatRunStamp(payload.run_time_utc)}`;
-    button.append(time, meta, day, run);
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", String(leadHour === Number(overlay.activeLeadHour)));
+    if (leadHour === Number(overlay.activeLeadHour)) activeButton = button;
+    button.dataset.leadHour = String(leadHour);
+    button.dataset.model = modelKey;
+    const top = document.createElement("span");
+    top.className = "forecast-step-label forecast-step-label-top";
+    const marker = document.createElement("span");
+    marker.className = "forecast-step-marker";
+    const bottom = document.createElement("span");
+    bottom.className = "forecast-step-label forecast-step-label-bottom";
+    const hourText = formatClock(step.valid_time_utc);
+    if (index % 2) bottom.textContent = hourText;
+    else top.textContent = hourText;
+    button.append(top, marker, bottom);
     button.title =
       `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)} · ` +
-      `run AROME ${formatRunStamp(payload.run_time_utc)} · ` +
-      `${hasWindNinja ? "WindNinja 50 m disponible" : "AROME seul pour l'instant"}`;
+      `run ${modelShortLabel} ${formatRunStamp(model.run_time_utc)} · ` +
+      `${hasWindNinja ? "WindNinja 50 m disponible pour H+" + leadHour : `${model.model_label} brut`}`;
     button.setAttribute(
       "aria-label",
       `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)}, ` +
-        `calculée par le run AROME du ${formatRunStamp(payload.run_time_utc)}`
+        `calculée par le run ${modelShortLabel} du ${formatRunStamp(model.run_time_utc)}`
     );
     button.addEventListener("click", () => {
-      overlay.setStep(index);
-      for (const child of strip.children) child.classList.remove("active");
-      button.classList.add("active");
-      updateReadout(payload, overlay);
+      selectStep(step);
     });
-    strip.appendChild(button);
+    track.appendChild(button);
   });
+  if (activeButton) {
+    requestAnimationFrame(() => {
+      activeButton.scrollIntoView({ block: "nearest", inline: "center" });
+    });
+  }
 }
 
 function bindMapReadout(map, overlay) {
@@ -2822,20 +3169,28 @@ function positionPointInspector(inspector, containerPoint, map) {
 
 function buildPointInspection(latlng, overlay) {
   const aromeField = overlay.aromeFieldAt(latlng, true);
+  const rawField = overlay.visibleLayers.icon2i
+    ? overlay.icon2iFieldAt(latlng, true)
+    : overlay.visibleLayers.moloch
+      ? overlay.molochFieldAt(latlng, true)
+      : aromeField;
   const windNinja = windNinjaPointInspection(latlng, overlay, aromeField);
   if (windNinja) return windNinja;
-  if (!aromeField || !overlay.visibleLayers.arome) return null;
+  if (!rawField || !anyRawLayerVisible(overlay)) return null;
+  const label = rawLayerLabel(rawModelKey(overlay));
+  const source = `${label} 10 m`;
+  const note = `${label} brut`;
   return {
-    source: "AROME 10 m",
-    speedText: `${aromeField.speedKnots.toFixed(1)} kt`,
+    source,
+    speedText: `${rawField.speedKnots.toFixed(1)} kt`,
     detail: compactPointDetail({
-      windFromDeg: aromeField.windFromDeg,
-      note: "AROME brut",
+      windFromDeg: rawField.windFromDeg,
+      note,
     }),
     title: fullPointDetail({
-      windFromDeg: aromeField.windFromDeg,
-      heightLabel: aromeField.heightLabel,
-      resolutionLabel: aromeField.resolutionLabel,
+      windFromDeg: rawField.windFromDeg,
+      heightLabel: rawField.heightLabel,
+      resolutionLabel: rawField.resolutionLabel,
       latlng,
       note: "champ brut",
     }),
@@ -2911,9 +3266,11 @@ function fullPointDetail({ windFromDeg, heightLabel, resolutionLabel, latlng, no
 function updatePointReadout(latlng, overlay) {
   const field = overlay.fieldAt(latlng);
   if (!field) {
-    document.querySelector(".readout-heading").textContent = "AROME";
+    document.querySelector(".readout-heading").textContent = rawLayerLabel(rawModelKey(overlay));
     document.querySelector("#spot-speed").textContent = "--";
-    document.querySelector("#spot-detail").textContent = overlay.visibleLayers.arome ? "Hors domaine AROME" : "Couche AROME masquée";
+    const rawVisible = anyRawLayerVisible(overlay);
+    const rawName = rawLayerLabel(rawModelKey(overlay));
+    document.querySelector("#spot-detail").textContent = rawVisible ? `Hors domaine ${rawName}` : "Couche météo masquée";
     return;
   }
   const speedKnots = field.speedKnots ?? field.speed * KNOTS_PER_MPS;
@@ -2972,11 +3329,14 @@ async function main() {
   const response = await fetch(DATA_URL);
   if (!response.ok) throw new Error(`Unable to load ${DATA_URL}`);
   const payload = await response.json();
+  const molochPayload = await fetchOptionalJson(MOLOCH_DATA_URL);
+  const icon2iPayload = await fetchOptionalJson(ICON2I_DATA_URL);
   const windNinjaCorsica50mTilePayload =
     (await fetchOptionalJson(WINDNINJA_CORSICA_50M_DATA_MANIFEST_URL)) ||
     (await fetchOptionalJson(WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL));
-  const overlay = new AromeWindOverlay(payload, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, windNinjaCorsica50mTilePayload);
+  const overlay = new AromeWindOverlay(payload, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, windNinjaCorsica50mTilePayload, molochPayload, icon2iPayload);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
+  overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
   applyPreferredForecastLayer(overlay);
   window.CORSEWIND_AROME_OVERLAY = overlay;
   window.CORSEWIND_AROME_PAYLOAD = payload;
@@ -2984,7 +3344,7 @@ async function main() {
   map.fitBounds(overlay.bounds(), { paddingTopLeft: [16, 100], paddingBottomRight: [16, 84] });
   bindScaleControl(overlay);
   bindModeControl(overlay);
-  bindLayerControl(overlay);
+  bindLayerControl(overlay, payload);
   bindParticleControl(overlay);
   bindParticleSliders(overlay);
   bindMapFocusControl();
@@ -3007,5 +3367,5 @@ async function fetchOptionalJson(url, bustCache = false) {
 
 main().catch((error) => {
   console.error(error);
-  document.querySelector("#spot-detail").textContent = "Erreur de chargement du champ AROME";
+  document.querySelector("#spot-detail").textContent = "Erreur de chargement du champ météo";
 });
