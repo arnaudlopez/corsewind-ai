@@ -99,6 +99,19 @@ def round_grid(array: np.ndarray) -> list[list[float | None]]:
     return rows
 
 
+def write_layer_atomic(path: Path, payload: dict[str, Any]) -> None:
+    if not payload.get("run_time_utc") or not payload.get("forecast_steps"):
+        raise SystemExit("Refusing to publish incomplete AROME layer payload.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    parsed = json.loads(tmp.read_text(encoding="utf-8"))
+    if not parsed.get("run_time_utc") or not parsed.get("forecast_steps"):
+        tmp.unlink(missing_ok=True)
+        raise SystemExit("Refusing to publish invalid AROME layer JSON.")
+    tmp.replace(path)
+
+
 def build_payload(
     run_time: datetime,
     coverages: dict[str, str],
@@ -192,8 +205,7 @@ def main() -> None:
         auth_header=args.auth_header,
         request_sleep_sec=args.request_sleep_sec,
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(payload, separators=(",", ":")), encoding="utf-8")
+    write_layer_atomic(args.output, payload)
     print(
         f"wrote {args.output} run={payload['run_time_utc']} "
         f"steps={len(payload['forecast_steps'])} shape={payload['forecast_steps'][0]['shape']}"

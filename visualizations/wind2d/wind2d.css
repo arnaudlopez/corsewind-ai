@@ -426,13 +426,21 @@ body {
 }
 
 .mode-tab:disabled,
-.mode-tab.disabled {
+.mode-tab.disabled,
+.layer-toggle:disabled,
+.layer-toggle.disabled,
+.map-layer-button:disabled,
+.map-layer-button.disabled {
   cursor: not-allowed;
   opacity: 0.56;
 }
 
 .mode-tab:disabled.active,
-.mode-tab.disabled.active {
+.mode-tab.disabled.active,
+.layer-toggle:disabled.active,
+.layer-toggle.disabled.active,
+.map-layer-button:disabled.active,
+.map-layer-button.disabled.active {
   color: rgba(226, 232, 240, 0.72);
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.16);

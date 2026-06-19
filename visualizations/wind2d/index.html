@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CorseWind AROME Wind Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./wind2d.css?v=20260619-arome-speed-only" />
+    <link rel="stylesheet" href="./wind2d.css?v=20260619-model-timeline" />
   </head>
   <body>
     <main class="app-shell">
@@ -16,6 +16,9 @@
       <nav class="map-layer-rail" aria-label="Cartes affichées">
         <button class="map-layer-button active" data-layer="arome" type="button" aria-pressed="true" title="AROME">
           A
+        </button>
+        <button class="map-layer-button" data-layer="moloch" type="button" aria-pressed="false" title="MOLOCH 1,2 km">
+          M
         </button>
         <button class="map-layer-button" data-layer="windninja50" type="button" aria-pressed="false" title="WindNinja 50 m / 10 m">
           50
@@ -74,6 +77,7 @@
           </div>
           <div class="layer-toggles" aria-label="Couches visibles">
             <button class="layer-toggle active" data-layer="arome" type="button" aria-pressed="true">AROME</button>
+            <button class="layer-toggle" data-layer="moloch" type="button" aria-pressed="false">MOLOCH</button>
             <button class="layer-toggle" data-layer="windninja50" type="button" aria-pressed="false" title="WindNinja 50 m / 10 m">WN 50/10 m</button>
           </div>
           <div class="mode-tabs" aria-label="Rendu vent">
@@ -133,6 +137,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script type="module" src="./wind2d.js?v=20260619-arome-speed-only"></script>
+    <script type="module" src="./wind2d.js?v=20260619-model-timeline"></script>
   </body>
 </html>

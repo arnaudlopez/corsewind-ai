@@ -5,6 +5,7 @@ Autonomous forecast engine and 2D viewer for high-resolution wind visualization 
 The current public scope is intentionally narrow:
 
 - fetch the latest useful Meteo-France AROME forecast steps;
+- optionally normalize a CNR-ISAC / MeteoHub MOLOCH 1.2 km wind bundle for display;
 - downscale selected session hours with WindNinja over Corsica at 50 m / 10 m output height;
 - publish progressive Wind2D tile manifests as each forecast hour finishes;
 - expose generated outputs for later Beacon Live integration.
@@ -17,6 +18,7 @@ Generated weather data, WindNinja cases, raster tiles, reports, and local secret
 scripts/
   run_forecast_update_engine.py        # polling/orchestration entrypoint
   build_arome_corsica_wind_layer.py    # Meteo-France AROME refresh
+  build_moloch_corsica_wind_layer.py   # optional MOLOCH 1.2 km layer normalization
   prepare_corsica_windninja_tiles.py   # 50 m WindNinja tile case generation
   run_corsica_windninja_batch.py       # parallel WindNinja batch runner
   run_windninja_cases_docker.py        # Docker/Katana WindNinja launcher
@@ -48,10 +50,17 @@ Fill `.env`:
 
 ```bash
 METEOFRANCE_API_KEY=...
+MOLOCH_SOURCE_URL=...
 CORSEWIND_HOST_ROOT=/absolute/path/to/CorseWind.ai
 ```
 
 The engine launches WindNinja through Docker, so Docker must be running and the host must be able to pull/use the WindNinja/Katana image configured by the scripts.
+
+MOLOCH decoding is optional. Install the extra GRIB/NetCDF stack only on hosts that will build the MOLOCH layer:
+
+```bash
+pip install -r requirements-moloch.txt
+```
 
 ## Run One Forecast Cycle
 
@@ -67,6 +76,7 @@ Production-like single cycle for the remaining useful windsurf window:
 python3 scripts/run_forecast_update_engine.py \
   --once \
   --force \
+  --enable-moloch \
   --session-days today \
   --session-past-tolerance-hours 0 \
   --windninja-parallel 6 \
@@ -106,6 +116,7 @@ The viewer expects generated files such as:
 
 ```text
 visualizations/wind2d/arome-corsica-latest.json
+visualizations/wind2d/moloch-corsica-latest.json
 visualizations/wind2d/windninja-corsica-data-50m/manifest.json
 visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json
 ```

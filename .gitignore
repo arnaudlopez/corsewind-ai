@@ -13,6 +13,7 @@ tmp/
 
 # Generated Wind2D client payloads and tiles.
 visualizations/wind2d/arome-corsica-latest.json
+visualizations/wind2d/moloch-corsica-latest.json
 visualizations/wind2d/tiles/
 visualizations/wind2d/windninja-corsica-data*/
 visualizations/wind2d/windninja-corsica-tiles*/
