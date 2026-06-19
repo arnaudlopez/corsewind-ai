@@ -99,6 +99,18 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off", ""}:
+        return False
+    return default
+
+
 def request_shutdown(signum: int, _frame: Any) -> None:
     global SHUTDOWN_REQUESTED
     SHUTDOWN_REQUESTED = True
@@ -1054,6 +1066,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             "past_tolerance_hours": args.session_past_tolerance_hours,
             "explicit_windninja_lead_hours": args.windninja_lead_hours,
         },
+        "windninja_enabled": bool(args.enable_windninja),
         "windninja_steps": [],
         "published_windninja_steps": [],
         "commands": commands,
@@ -1133,6 +1146,8 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
 
     if args.dry_run:
         for index, step in enumerate(selected_steps):
+            if not args.enable_windninja:
+                break
             lead_hour = int(step["lead_hour"])
             for command in windninja_50m_commands(
                 lead_hour,
@@ -1142,7 +1157,14 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
                 append_tiles=index > 0,
             ):
                 commands.append(run_command(command, dry_run=True))
-        status.update({"result": "dry_run", "changed": True, "elapsed_s": round(time.time() - started, 3)})
+        status.update(
+            {
+                "result": "dry_run",
+                "changed": True,
+                "windninja_generation_skipped": not bool(args.enable_windninja),
+                "elapsed_s": round(time.time() - started, 3),
+            }
+        )
         write_json(args.status_file, status)
         return status
 
@@ -1152,6 +1174,28 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     changed = bool(args.force or current_run_time != state.get("last_completed_run_time_utc"))
     status["changed"] = changed
     status["windninja_forcing_changed"] = changed
+    if changed and not args.enable_windninja:
+        result = "windninja_disabled"
+        status.update(
+            {
+                "result": result,
+                "elapsed_s": round(time.time() - started, 3),
+                "windninja_generation_skipped": True,
+                "windninja_skip_reason": "WINDNINJA_ENABLED=false or --no-enable-windninja",
+            }
+        )
+        write_json(args.status_file, status)
+        append_history(
+            state,
+            {
+                "at_utc": utc_now(),
+                "result": result,
+                "run_time_utc": current_run_time,
+                "weather_sources_changed": any_source_changed,
+                "failed_sources": failed_sources,
+            },
+        )
+        return status
     if not changed:
         if any_source_changed:
             result = "model_layers_updated"
@@ -1261,6 +1305,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--icon2i-dataset", default="ICON_2I_SURFACE_PRESSURE_LEVELS")
     parser.add_argument("--icon2i-lead-hours", nargs="+", default=None)
     parser.add_argument("--icon2i-poll-interval-sec", type=int, default=1800)
+    parser.add_argument(
+        "--enable-windninja",
+        action=argparse.BooleanOptionalAction,
+        default=env_bool("WINDNINJA_ENABLED", True),
+        help="Run WindNinja 50 m generation. Defaults to WINDNINJA_ENABLED, true when unset.",
+    )
     parser.add_argument("--windninja-lead-hours", nargs="+", type=int, default=None)
     parser.add_argument("--windninja-parallel", type=int, default=6)
     parser.add_argument("--windninja-runtime-min", type=float, default=60.0)

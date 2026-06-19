@@ -14,6 +14,7 @@ services:
       METEOFRANCE_API_KEY: ${METEOFRANCE_API_KEY:?Set METEOFRANCE_API_KEY in Portainer stack environment}
       MOLOCH_SOURCE_URL: ${MOLOCH_SOURCE_URL:-}
       ICON2I_SOURCE_URL: ${ICON2I_SOURCE_URL:-}
+      WINDNINJA_ENABLED: ${WINDNINJA_ENABLED:-true}
       CORSEWIND_CONTAINER_ROOT: /app
       CORSEWIND_HOST_ROOT: ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}
     working_dir: /app

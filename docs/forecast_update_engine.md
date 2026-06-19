@@ -316,6 +316,7 @@ Avec Portainer en mode Git stack :
 - le stack peut reconstruire l'image depuis le depot a chaque pull ;
 - les variables `METEOFRANCE_API_KEY` et `CORSEWIND_HOST_ROOT` doivent etre definies dans l'environnement du stack Portainer ;
 - `CORSEWIND_HOST_ROOT` doit pointer vers le checkout hote cree par Portainer ;
+- `WINDNINJA_ENABLED=false` desactive l'execution WindNinja et la generation des tuiles/data WindNinja, tout en conservant la mise a jour des couches modele ;
 - le serveur web Wind2D est optionnel : definir `COMPOSE_PROFILES=wind2d-web` pour l'activer, et `WIND2D_WEB_PORT=8769` pour choisir le port hote ;
 - le compose ne depend pas d'un fichier `.env` committe ; en local, Docker Compose lit toujours `.env` automatiquement pour l'interpolation ;
 - les donnees generees restent dans le depot monte, pas dans l'image ;
@@ -337,6 +338,8 @@ python scripts/check_forecast_engine_health.py --max-status-age-sec 7200
 ```
 
 Un echec ponctuel MOLOCH, ICON-2I ou AROME-PI rend le statut degrade mais ne rend pas forcement le container unhealthy. Le healthcheck echoue surtout si le fichier de statut est absent, illisible, trop ancien, ou si le moteur cumule trop d'echecs consecutifs.
+
+Si `WINDNINJA_ENABLED=false`, le cycle finit avec `result = windninja_disabled` lorsqu'un run AROME nouveau attend un calcul WindNinja. Le moteur ne modifie pas le `last_completed_run_time_utc` WindNinja dans cet etat. Quand `WINDNINJA_ENABLED=true` est remis, le dernier run AROME non calcule est donc encore eligible au calcul.
 
 ## Cadre operationnel
 
