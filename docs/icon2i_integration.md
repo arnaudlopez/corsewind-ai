@@ -1,9 +1,8 @@
 # ICON-2I 2.2 km Integration
 
 This repository supports an optional raw ICON-2I wind layer for model
-comparison. The layer is generated for the Wind2D-compatible JSON contract, but
-the forecast engine integration is the first step; frontend display can be
-added once the multi-model UI is generalized beyond AROME/MOLOCH.
+comparison. The layer is generated for the Wind2D-compatible JSON contract and
+loaded opportunistically by the Wind2D viewer when the generated payload exists.
 
 ## Source
 
@@ -83,3 +82,13 @@ python3 scripts/run_forecast_update_engine.py --once --enable-icon2i
 The engine records `icon2i_enabled`, `icon2i_dataset`, and
 `icon2i_lead_hours` in the status file. ICON-2I is independent from the AROME
 run used to decide whether WindNinja 50 m should be rebuilt.
+
+## Viewer
+
+The Wind2D viewer loads `icon2i-corsica-latest.json` opportunistically. When
+present, the `I` layer button becomes active and displays ICON-2I as a raw 10 m
+wind field. When absent, the button stays disabled with a tooltip.
+
+AROME, MOLOCH, and ICON-2I are exclusive raw layers in the UI. The forecast
+strip is rebuilt from the active raw model, and layer switching preserves the
+displayed valid time when an equivalent forecast step exists.

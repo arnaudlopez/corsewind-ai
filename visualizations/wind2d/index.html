@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>CorseWind AROME Wind Map</title>
+    <title>CorseWind Wind Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="./wind2d.css?v=20260619-model-timeline" />
   </head>
@@ -20,6 +20,9 @@
         <button class="map-layer-button" data-layer="moloch" type="button" aria-pressed="false" title="MOLOCH 1,2 km">
           M
         </button>
+        <button class="map-layer-button" data-layer="icon2i" type="button" aria-pressed="false" title="ICON-2I 2,2 km">
+          I
+        </button>
         <button class="map-layer-button" data-layer="windninja50" type="button" aria-pressed="false" title="WindNinja 50 m / 10 m">
           50
         </button>
@@ -28,7 +31,7 @@
       <section class="topbar" aria-label="Résumé prévision">
         <div class="brand-block">
           <span class="brand">CorseWind.ai</span>
-          <span class="scene">Corse AROME latest</span>
+          <span class="scene">Corse modèles latest</span>
         </div>
         <div class="status-grid">
           <div>
@@ -56,7 +59,7 @@
 
       <section class="legend-panel mobile-collapsed" aria-label="Légende">
         <div class="legend-heading">
-          <div class="legend-title" id="legend-title">Vent AROME / WindNinja</div>
+          <div class="legend-title" id="legend-title">Vent modèles / WindNinja</div>
           <button class="legend-expand-toggle" id="legend-expand-toggle" type="button" aria-expanded="false">Réglages</button>
         </div>
         <div class="gradient-bar"></div>
@@ -78,6 +81,7 @@
           <div class="layer-toggles" aria-label="Couches visibles">
             <button class="layer-toggle active" data-layer="arome" type="button" aria-pressed="true">AROME</button>
             <button class="layer-toggle" data-layer="moloch" type="button" aria-pressed="false">MOLOCH</button>
+            <button class="layer-toggle" data-layer="icon2i" type="button" aria-pressed="false">ICON-2I</button>
             <button class="layer-toggle" data-layer="windninja50" type="button" aria-pressed="false" title="WindNinja 50 m / 10 m">WN 50/10 m</button>
           </div>
           <div class="mode-tabs" aria-label="Rendu vent">
@@ -111,7 +115,7 @@
             <input id="particle-life" type="range" min="20" max="500" step="5" value="400" />
           </div>
           <div class="effect-grid">
-            <span><i class="dot dot-shelter"></i>AROME brut</span>
+            <span><i class="dot dot-shelter"></i>Modèle brut</span>
             <span><i class="dot dot-lift"></i>Échelle fixe</span>
             <span id="cfd-status"><i class="dot dot-cfd"></i>WindNinja Corse 50 m</span>
           </div>
