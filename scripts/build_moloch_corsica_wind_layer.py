@@ -162,6 +162,7 @@ def normalize_name(name: str) -> str:
 
 def find_data_array(datasets: list[Any], candidates: tuple[str, ...]) -> Any | None:
     normalized = {normalize_name(item) for item in candidates}
+    best: tuple[int, Any] | None = None
     for dataset in datasets:
         for name in dataset.data_vars:
             data_array = dataset[name]
@@ -172,8 +173,23 @@ def find_data_array(datasets: list[Any], candidates: tuple[str, ...]) -> Any | N
                 normalize_name(str(data_array.attrs.get("GRIB_shortName", ""))),
             }
             if aliases & normalized:
-                return data_array
-    return None
+                score = 100
+                type_of_level = normalize_name(str(data_array.attrs.get("GRIB_typeOfLevel", "")))
+                level = data_array.attrs.get("GRIB_level")
+                if type_of_level in {"heightaboveground", "heightabovegroundlayer"}:
+                    score += 40
+                if type_of_level in {"isobaricinhpa", "isobaricpa"}:
+                    score -= 40
+                try:
+                    if float(level) == 10:
+                        score += 30
+                except (TypeError, ValueError):
+                    pass
+                if any(normalize_name(dim) in {"isobaricinhpa", "isobaricpa"} for dim in data_array.dims):
+                    score -= 20
+                if best is None or score > best[0]:
+                    best = (score, data_array)
+    return best[1] if best else None
 
 
 def find_coord(dataset_or_array: Any, candidates: tuple[str, ...]) -> Any | None:

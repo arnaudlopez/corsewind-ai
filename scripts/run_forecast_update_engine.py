@@ -22,6 +22,7 @@ from meteo_france_client import coverage_ids, endpoint, load_dotenv, request_api
 ROOT = Path(__file__).resolve().parents[1]
 AROME_LAYER = ROOT / "visualizations/wind2d/arome-corsica-latest.json"
 MOLOCH_LAYER = ROOT / "visualizations/wind2d/moloch-corsica-latest.json"
+ICON2I_LAYER = ROOT / "visualizations/wind2d/icon2i-corsica-latest.json"
 
 DEFAULT_STATE_PATH = ROOT / "data/processed/diagnostics/forecast_update_engine_state.json"
 DEFAULT_STATUS_PATH = ROOT / "data/processed/diagnostics/forecast_update_engine_status.json"
@@ -33,6 +34,7 @@ DEFAULT_SESSION_TIMEZONE = "Europe/Paris"
 WINDNINJA_50M_ARTIFACTS = {
     "arome_layer": "visualizations/wind2d/arome-corsica-latest.json",
     "moloch_layer": "visualizations/wind2d/moloch-corsica-latest.json",
+    "icon2i_layer": "visualizations/wind2d/icon2i-corsica-latest.json",
     "color_tiles_manifest": "visualizations/wind2d/windninja-corsica-tiles-50m/manifest.json",
     "data_tiles_manifest": "visualizations/wind2d/windninja-corsica-data-50m/manifest.json",
     "tile_plan_pattern": "data/processed/physics/corsica_windninja_tile_plan_50m_hHH.json",
@@ -297,6 +299,18 @@ def moloch_refresh_command(source: str | None, lead_hours: tuple[str, ...]) -> t
     )
 
 
+def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[str, ...]) -> tuple[str, ...]:
+    source_args = ("--input", source) if source else ()
+    return (
+        "scripts/build_icon2i_corsica_wind_layer.py",
+        *source_args,
+        "--dataset",
+        dataset,
+        "--lead-hours",
+        *lead_hours,
+    )
+
+
 def windninja_50m_commands(
     lead_hour: int,
     max_runtime_min: float,
@@ -497,6 +511,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     commands: list[dict[str, Any]] = []
     arome_lead_hours = resolve_arome_lead_hours(args)
     moloch_lead_hours = tuple(str(item) for item in (args.moloch_lead_hours or arome_lead_hours))
+    icon2i_lead_hours = tuple(str(item) for item in (args.icon2i_lead_hours or arome_lead_hours))
     status: dict[str, Any] = {
         "format": "corsewind.forecast_update_engine.status.v1",
         "generated_at_utc": utc_now(),
@@ -510,6 +525,9 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
         "arome_lead_hours": list(arome_lead_hours),
         "moloch_enabled": bool(args.enable_moloch),
         "moloch_lead_hours": list(moloch_lead_hours),
+        "icon2i_enabled": bool(args.enable_icon2i),
+        "icon2i_dataset": args.icon2i_dataset,
+        "icon2i_lead_hours": list(icon2i_lead_hours),
         "selection_policy": {
             "timezone": args.session_timezone,
             "session_start_hour": args.session_start_hour,
@@ -536,6 +554,9 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
         else:
             status["moloch_status"] = "skipped_missing_source"
             status["moloch_hint"] = "Set MOLOCH_SOURCE_URL or pass --moloch-input to build moloch-corsica-latest.json."
+    if args.enable_icon2i:
+        source = args.icon2i_input or os.getenv("ICON2I_SOURCE") or os.getenv("ICON2I_SOURCE_URL")
+        commands.append(run_command(icon2i_refresh_command(source, args.icon2i_dataset, icon2i_lead_hours), args.dry_run))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
@@ -644,6 +665,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--moloch-input", default=None, help="Local GRIB/NetCDF/JSON file or direct URL. Defaults to MOLOCH_SOURCE_URL.")
     parser.add_argument("--moloch-lead-hours", nargs="+", default=None)
     parser.add_argument("--moloch-skip-if-missing", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--enable-icon2i", action="store_true", help="Build the optional ICON-2I 2.2 km viewer layer.")
+    parser.add_argument("--icon2i-input", default=None, help="Local GRIB/NetCDF/JSON file or direct URL. Defaults to latest MeteoHub ICON-2I bundle.")
+    parser.add_argument("--icon2i-dataset", default="ICON_2I_SURFACE_PRESSURE_LEVELS")
+    parser.add_argument("--icon2i-lead-hours", nargs="+", default=None)
     parser.add_argument("--windninja-lead-hours", nargs="+", type=int, default=None)
     parser.add_argument("--windninja-parallel", type=int, default=6)
     parser.add_argument("--windninja-runtime-min", type=float, default=60.0)
