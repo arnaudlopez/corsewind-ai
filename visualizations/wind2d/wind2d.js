@@ -102,8 +102,15 @@ class AromeWindOverlay extends L.Layer {
     this.particleFrame = null;
     this.lastParticleTime = null;
     this.windNinjaDataTileCache = new Map();
+    this.heatTileLayer = null;
     this.heatCanvas = document.createElement("canvas");
     this.heatCtx = this.heatCanvas.getContext("2d", { alpha: true });
+    this.zoomAnimating = false;
+    this.zoomAnimationState = null;
+    this.zoomAnimationMode = null;
+    this.renderView = null;
+    this.renderMetrics = null;
+    this.shell = null;
   }
 
   get step() {
@@ -142,7 +149,7 @@ class AromeWindOverlay extends L.Layer {
     this.windNinjaDataTileCache.clear();
     this.resetParticles();
     this.refreshTileLayers();
-    this.draw();
+    this.redrawHeatLayer();
     refreshPinnedPointInspector(this);
   }
 
@@ -150,7 +157,7 @@ class AromeWindOverlay extends L.Layer {
     this.scaleMaxKnots = Math.max(6, Math.min(80, Number(value) || DEFAULT_SCALE_MAX_KT));
     this.heatDirty = true;
     this.redrawWindNinjaDataLayers();
-    this.draw();
+    this.redrawHeatLayer();
   }
 
   setDisplayMode(mode) {
@@ -162,7 +169,7 @@ class AromeWindOverlay extends L.Layer {
     this.refreshTileLayers();
     syncModeControls(this);
     updateLegendTitle(this.displayMode);
-    this.draw();
+    this.redrawHeatLayer();
   }
 
   setLayerVisible(layer, visible) {
@@ -193,7 +200,7 @@ class AromeWindOverlay extends L.Layer {
     this.windNinjaDataTileCache.clear();
     this.resetParticles();
     this.refreshTileLayers();
-    this.draw();
+    this.redrawHeatLayer();
     refreshActiveLayerLabel(this);
     refreshCoverageStatus(this);
     syncModeControls(this);
@@ -228,6 +235,22 @@ class AromeWindOverlay extends L.Layer {
     updateWindNinjaCorsicaTileLayer(this);
   }
 
+  heatLayerVisible() {
+    return Boolean(anyRawLayerVisible(this) && this.displayMode === "speed");
+  }
+
+  syncHeatTileLayerVisibility() {
+    if (!this.heatTileLayer) return;
+    const container = this.heatTileLayer.getContainer?.();
+    if (container) container.style.display = this.heatLayerVisible() ? "" : "none";
+  }
+
+  redrawHeatLayer() {
+    if (!this.heatTileLayer) return;
+    this.syncHeatTileLayerVisibility();
+    if (this.heatLayerVisible()) this.heatTileLayer.redraw();
+  }
+
   redrawWindNinjaDataLayers() {
     for (const tileState of [this.windNinjaCorsica50mTiles]) {
       if (tileState?.encoding === "data" && tileState.activeLayer?.redraw) {
@@ -238,7 +261,7 @@ class AromeWindOverlay extends L.Layer {
 
   syncCanvasVisibility() {
     if (!this.canvas) return;
-    this.canvas.hidden = !anyRawLayerVisible(this) || this.displayMode !== "speed";
+    this.canvas.hidden = true;
   }
 
   syncParticleVisibility() {
@@ -249,15 +272,29 @@ class AromeWindOverlay extends L.Layer {
 
   onAdd(map) {
     this.map = map;
+    this.shell = document.querySelector(".app-shell");
+    if (!map.getPane("windHeatPane")) {
+      const pane = map.createPane("windHeatPane");
+      pane.style.zIndex = 420;
+      pane.style.pointerEvents = "none";
+    }
+    map.getPane("windHeatPane")?.classList.add("wind-heat-pane");
+    this.heatTileLayer = createWindHeatTileLayer(this);
+    this.heatTileLayer.addTo(map);
+    this.syncHeatTileLayerVisibility();
     this.canvas = L.DomUtil.create("canvas", "cfd-wind-canvas leaflet-zoom-animated");
     this.ctx = this.canvas.getContext("2d", { alpha: true });
     this.syncCanvasVisibility();
-    document.querySelector(".app-shell").appendChild(this.canvas);
+    this.shell.appendChild(this.canvas);
     this.particleCanvas = L.DomUtil.create("canvas", "wind-particle-canvas leaflet-zoom-animated");
     this.particleCtx = this.particleCanvas.getContext("2d", { alpha: true });
     this.syncParticleVisibility();
-    document.querySelector(".app-shell").appendChild(this.particleCanvas);
-    map.on("move zoom resize", this.reset, this);
+    this.shell.appendChild(this.particleCanvas);
+    map.on("move resize", this.reset, this);
+    map.on("zoomstart", this.onZoomStart, this);
+    map.on("zoomanim", this.onZoomAnim, this);
+    map.on("zoom", this.onZoomProgress, this);
+    map.on("zoomend", this.onZoomEnd, this);
     map.on("zoomend", this.refreshTileLayers, this);
     map.on("zoomend moveend", this.maybeLoadPriorityCorridors, this);
     this.reset();
@@ -268,16 +305,112 @@ class AromeWindOverlay extends L.Layer {
   }
 
   onRemove(map) {
-    map.off("move zoom resize", this.reset, this);
+    map.off("move resize", this.reset, this);
+    map.off("zoomstart", this.onZoomStart, this);
+    map.off("zoomanim", this.onZoomAnim, this);
+    map.off("zoom", this.onZoomProgress, this);
+    map.off("zoomend", this.onZoomEnd, this);
     map.off("zoomend", this.refreshTileLayers, this);
     map.off("zoomend moveend", this.maybeLoadPriorityCorridors, this);
     if (this.particleFrame) cancelAnimationFrame(this.particleFrame);
     if (this.rasterTiles?.activeLayer) map.removeLayer(this.rasterTiles.activeLayer);
+    if (this.heatTileLayer) map.removeLayer(this.heatTileLayer);
     if (this.windNinjaCorsica50mTiles?.activeLayer) map.removeLayer(this.windNinjaCorsica50mTiles.activeLayer);
     if (this.windNinjaCorsicaTiles?.activeLayer) map.removeLayer(this.windNinjaCorsicaTiles.activeLayer);
     if (this.windNinjaCorsica1mTiles?.activeLayer) map.removeLayer(this.windNinjaCorsica1mTiles.activeLayer);
     L.DomUtil.remove(this.canvas);
     L.DomUtil.remove(this.particleCanvas);
+  }
+
+  setOverlayTransform(offset, scale) {
+    if (this.canvas) L.DomUtil.setTransform(this.canvas, offset, scale);
+    if (this.particleCanvas) L.DomUtil.setTransform(this.particleCanvas, offset, scale);
+  }
+
+  canvasPixelRatio() {
+    return Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  }
+
+  overlayRenderMetrics(size = this.map?.getSize()) {
+    if (!size) return null;
+    const pad = L.point(0, 0);
+    return {
+      size,
+      pad,
+      cssSize: size,
+      pixelRatio: this.canvasPixelRatio(),
+    };
+  }
+
+  captureRenderView(metrics = this.renderMetrics || this.overlayRenderMetrics()) {
+    if (!this.map || !metrics) return null;
+    this.renderView = {
+      center: this.map.getCenter(),
+      zoom: this.map.getZoom(),
+      size: metrics.size,
+      pad: metrics.pad,
+      cssSize: metrics.cssSize,
+    };
+    return this.renderView;
+  }
+
+  beginZoomTracking(mode = null) {
+    if (!this.map) return;
+    this.zoomAnimating = true;
+    this.zoomAnimationMode = mode;
+    this.zoomAnimationState = this.renderView || this.captureRenderView();
+    this.shell?.classList.add("wind-overlay-zooming");
+    this.shell?.classList.toggle("wind-overlay-zoom-transition", mode === "animated");
+    this.setOverlayTransform(L.point(0, 0), 1);
+  }
+
+  onZoomStart() {
+    this.beginZoomTracking(null);
+  }
+
+  applyZoomTransform(center, zoom) {
+    if (!this.map) return;
+    if (!this.zoomAnimationState) this.beginZoomTracking(null);
+    const state = this.zoomAnimationState;
+    if (!state) return;
+    const size = state.size || this.map.getSize();
+    const pad = state.pad || L.point(0, 0);
+    const targetCenter = center || this.map.getCenter();
+    const targetZoom = zoom ?? this.map.getZoom();
+    const scale = this.map.getZoomScale(targetZoom, state.zoom);
+    if (scale < 1) {
+      this.setOverlayTransform(L.point(0, 0), 1);
+      return;
+    }
+    const startTopLeft = this.map.project(state.center, state.zoom).subtract(size.divideBy(2)).subtract(pad);
+    const targetTopLeft = this.map.project(targetCenter, targetZoom).subtract(size.divideBy(2)).subtract(pad);
+    const offset = startTopLeft.multiplyBy(scale).subtract(targetTopLeft);
+    this.setOverlayTransform(offset, scale);
+  }
+
+  onZoomAnim(event) {
+    if (!this.map) return;
+    if (!this.zoomAnimating || !this.zoomAnimationState) this.beginZoomTracking("animated");
+    this.zoomAnimationMode = "animated";
+    this.shell?.classList.add("wind-overlay-zoom-transition");
+    this.applyZoomTransform(event.center, event.zoom);
+  }
+
+  onZoomProgress() {
+    if (!this.map || this.zoomAnimationMode === "animated") return;
+    if (!this.zoomAnimating || !this.zoomAnimationState) this.beginZoomTracking(null);
+    this.shell?.classList.remove("wind-overlay-zoom-transition");
+    this.applyZoomTransform(this.map.getCenter(), this.map.getZoom());
+  }
+
+  onZoomEnd() {
+    this.zoomAnimating = false;
+    this.zoomAnimationState = null;
+    this.zoomAnimationMode = null;
+    this.shell?.classList.remove("wind-overlay-zooming");
+    this.shell?.classList.remove("wind-overlay-zoom-transition");
+    this.setOverlayTransform(L.point(0, 0), 1);
+    this.reset();
   }
 
   maybeLoadPriorityCorridors() {
@@ -317,28 +450,36 @@ class AromeWindOverlay extends L.Layer {
       });
   }
 
-  reset() {
+  reset(event = null) {
+    if (this.zoomAnimating && event?.type === "move") {
+      if (this.zoomAnimationMode !== "animated") this.applyZoomTransform(this.map.getCenter(), this.map.getZoom());
+      return;
+    }
     const size = this.map.getSize();
-    this.canvas.style.left = "0";
-    this.canvas.style.top = "0";
-    this.canvas.width = size.x * devicePixelRatio;
-    this.canvas.height = size.y * devicePixelRatio;
-    this.canvas.style.width = `${size.x}px`;
-    this.canvas.style.height = `${size.y}px`;
-    this.ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    const metrics = this.overlayRenderMetrics(size);
+    this.renderMetrics = metrics;
+    const ratio = metrics.pixelRatio;
+    this.canvas.style.left = `${-metrics.pad.x}px`;
+    this.canvas.style.top = `${-metrics.pad.y}px`;
+    this.canvas.width = Math.ceil(metrics.cssSize.x * ratio);
+    this.canvas.height = Math.ceil(metrics.cssSize.y * ratio);
+    this.canvas.style.width = `${metrics.cssSize.x}px`;
+    this.canvas.style.height = `${metrics.cssSize.y}px`;
+    this.ctx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
     this.heatDirty = true;
     if (this.particleCanvas) {
-      this.particleCanvas.style.left = "0";
-      this.particleCanvas.style.top = "0";
-      this.particleCanvas.width = size.x * devicePixelRatio;
-      this.particleCanvas.height = size.y * devicePixelRatio;
-      this.particleCanvas.style.width = `${size.x}px`;
-      this.particleCanvas.style.height = `${size.y}px`;
-      this.particleCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-      this.particleCtx.clearRect(0, 0, size.x, size.y);
+      this.particleCanvas.style.left = `${-metrics.pad.x}px`;
+      this.particleCanvas.style.top = `${-metrics.pad.y}px`;
+      this.particleCanvas.width = Math.ceil(metrics.cssSize.x * ratio);
+      this.particleCanvas.height = Math.ceil(metrics.cssSize.y * ratio);
+      this.particleCanvas.style.width = `${metrics.cssSize.x}px`;
+      this.particleCanvas.style.height = `${metrics.cssSize.y}px`;
+      this.particleCtx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
+      this.particleCtx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
       this.resetParticles();
     }
     this.draw();
+    this.captureRenderView(metrics);
   }
 
   bounds() {
@@ -803,8 +944,9 @@ class AromeWindOverlay extends L.Layer {
     if (!anyRawLayerVisible(this)) return;
     if (this.displayMode !== "speed") return;
     const size = this.map.getSize();
+    const metrics = this.renderMetrics || this.overlayRenderMetrics(size);
     if (this.heatDirty) {
-      this.drawHeatRaster(size);
+      this.drawHeatRaster(size, metrics);
       this.heatDirty = false;
     }
     this.ctx.save();
@@ -814,7 +956,7 @@ class AromeWindOverlay extends L.Layer {
         ? "blur(1.5px) saturate(1.12) contrast(1.04)"
         : "blur(6px) saturate(1.45) contrast(1.18)";
     this.ctx.globalAlpha = 1;
-    this.ctx.drawImage(this.heatCanvas, 0, 0, size.x, size.y);
+    this.ctx.drawImage(this.heatCanvas, -metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
     this.ctx.restore();
   }
 
@@ -1044,18 +1186,18 @@ class AromeWindOverlay extends L.Layer {
     return points.some((point) => point.x >= -pad && point.x <= size.x + pad && point.y >= -pad && point.y <= size.y + pad);
   }
 
-  drawHeatRaster(size) {
+  drawHeatRaster(size, metrics = this.overlayRenderMetrics(size)) {
     const scale = size.x < 700 ? 0.3 : 0.38;
-    const width = Math.max(280, Math.round(size.x * scale));
-    const height = Math.max(190, Math.round(size.y * scale));
+    const width = Math.max(280, Math.round(metrics.cssSize.x * scale));
+    const height = Math.max(190, Math.round(metrics.cssSize.y * scale));
     this.heatCanvas.width = width;
     this.heatCanvas.height = height;
     const image = this.heatCtx.createImageData(width, height);
     const fields = new Array(width * height);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        const px = (x / width) * size.x;
-        const py = (y / height) * size.y;
+        const px = (x / width) * metrics.cssSize.x - metrics.pad.x;
+        const py = (y / height) * metrics.cssSize.y - metrics.pad.y;
         const field = this.fieldAt(this.map.containerPointToLatLng([px, py]));
         const index = y * width + x;
         fields[index] = field;
@@ -1130,9 +1272,12 @@ class AromeWindOverlay extends L.Layer {
   }
 
   draw() {
+    if (!this.canvas || this.canvas.hidden) return;
     const size = this.map.getSize();
-    this.ctx.clearRect(0, 0, size.x, size.y);
+    const metrics = this.renderMetrics || this.overlayRenderMetrics(size);
+    this.ctx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
     if (anyRawLayerVisible(this) && this.displayMode === "speed") this.drawHeat();
+    if (!this.zoomAnimating) this.captureRenderView(metrics);
   }
 
   startParticleLoop() {
@@ -1149,7 +1294,8 @@ class AromeWindOverlay extends L.Layer {
     this.lastParticleTime = null;
     if (this.particleCtx && this.map) {
       const size = this.map.getSize();
-      this.particleCtx.clearRect(0, 0, size.x, size.y);
+      const metrics = this.renderMetrics || this.overlayRenderMetrics(size);
+      this.particleCtx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
     }
   }
 
@@ -1244,6 +1390,7 @@ class AromeWindOverlay extends L.Layer {
 
   animateParticles(timestamp) {
     if (!this.particleCanvas || !this.particleCtx || !this.map || this.particleCanvas.hidden || document.hidden) return;
+    if (this.zoomAnimating) return;
     const size = this.map.getSize();
     const ctx = this.particleCtx;
     const previous = this.lastParticleTime ?? timestamp;
@@ -1257,7 +1404,8 @@ class AromeWindOverlay extends L.Layer {
     }
     if (this.particles.length > targetCount) this.particles.length = targetCount;
 
-    ctx.clearRect(0, 0, size.x, size.y);
+    const metrics = this.renderMetrics || this.overlayRenderMetrics(size);
+    ctx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
     ctx.save();
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -1533,6 +1681,114 @@ function rawLayerLabel(layer) {
 
 function anyRawLayerVisible(overlay) {
   return RAW_LAYER_KEYS.some((layer) => Boolean(overlay.visibleLayers?.[layer]));
+}
+
+function tilePixelToLatLng(globalX, globalY, zoom, tileSize = 256) {
+  const worldSize = tileSize * 2 ** zoom;
+  const wrappedX = ((globalX % worldSize) + worldSize) % worldSize;
+  const clampedY = Math.max(0, Math.min(worldSize, globalY));
+  const lng = (wrappedX / worldSize) * 360 - 180;
+  const n = Math.PI - (2 * Math.PI * clampedY) / worldSize;
+  const lat = (180 / Math.PI) * Math.atan(Math.sinh(n));
+  return L.latLng(lat, lng);
+}
+
+function renderWindHeatTile(overlay, coords, tileSizePoint) {
+  const tileSize = tileSizePoint?.x || 256;
+  const ratio = overlay.canvasPixelRatio?.() || Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const tile = document.createElement("canvas");
+  tile.className = "wind-heat-tile";
+  tile.width = Math.ceil(tileSize * ratio);
+  tile.height = Math.ceil(tileSize * ratio);
+  tile.style.width = `${tileSize}px`;
+  tile.style.height = `${tileSize}px`;
+  const ctx = tile.getContext("2d", { alpha: true });
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  if (!overlay.heatLayerVisible?.()) return tile;
+
+  const pad = 28;
+  const sampleScale = tileSize < 300 ? 0.62 : 0.5;
+  const sourceCssSize = tileSize + pad * 2;
+  const renderSize = Math.max(96, Math.ceil(sourceCssSize * sampleScale));
+  const source = document.createElement("canvas");
+  source.width = renderSize;
+  source.height = renderSize;
+  const sourceCtx = source.getContext("2d", { alpha: true });
+  const image = sourceCtx.createImageData(renderSize, renderSize);
+  const worldTileX = coords.x * tileSize;
+  const worldTileY = coords.y * tileSize;
+
+  for (let y = 0; y < renderSize; y += 1) {
+    for (let x = 0; x < renderSize; x += 1) {
+      const tileX = (x / renderSize) * sourceCssSize - pad;
+      const tileY = (y / renderSize) * sourceCssSize - pad;
+      const latlng = tilePixelToLatLng(worldTileX + tileX, worldTileY + tileY, coords.z, tileSize);
+      const field = overlay.fieldAt(latlng);
+      const offset = (y * renderSize + x) * 4;
+      if (!field) {
+        image.data[offset + 3] = 0;
+        continue;
+      }
+      const render = renderFieldColor(field, overlay.displayMode, overlay.scaleMaxKnots);
+      const renderAlpha = Math.max(0, Math.min(1, field.renderAlpha ?? 1));
+      if (renderAlpha < 0.08) {
+        image.data[offset + 3] = 0;
+        continue;
+      }
+      image.data[offset] = render.rgb[0];
+      image.data[offset + 1] = render.rgb[1];
+      image.data[offset + 2] = render.rgb[2];
+      image.data[offset + 3] = Math.round(
+        Math.min(236, render.alpha) *
+          (field.domainFeather ?? 1) *
+          renderAlpha
+      );
+    }
+  }
+
+  sourceCtx.putImageData(image, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.filter = "blur(6px) saturate(1.45) contrast(1.18)";
+  ctx.drawImage(source, -pad, -pad, sourceCssSize, sourceCssSize);
+  ctx.restore();
+  return tile;
+}
+
+function createWindHeatTileLayer(overlay) {
+  const WindHeatLayer = L.GridLayer.extend({
+    createTile(coords) {
+      return renderWindHeatTile(overlay, coords, this.getTileSize());
+    },
+    _updateOpacity() {
+      if (!this._map) return;
+      if (this._fadeFrame) {
+        L.Util.cancelAnimFrame(this._fadeFrame);
+        this._fadeFrame = null;
+      }
+      const loading = !this._noTilesToLoad();
+      for (const key in this._tiles) {
+        const tile = this._tiles[key];
+        if (!tile?.el) continue;
+        const visible = Boolean(tile.current || (loading && tile.retain));
+        tile.el.style.opacity = visible ? "1" : "0";
+        tile.el.style.visibility = visible ? "visible" : "hidden";
+      }
+      if (!loading) {
+        this._pruneTiles();
+      }
+    },
+  });
+  return new WindHeatLayer({
+    pane: "windHeatPane",
+    tileSize: 256,
+    opacity: 1,
+    updateWhenZooming: false,
+    updateWhenIdle: false,
+    keepBuffer: 3,
+    className: "wind-heat-grid",
+  });
 }
 
 function refreshPinnedPointInspector(overlay) {
@@ -2508,6 +2764,7 @@ function applyPreferredForecastLayer(overlay) {
   overlay.windNinjaDataTileCache?.clear();
   overlay.syncCanvasVisibility?.();
   overlay.syncParticleVisibility?.();
+  overlay.redrawHeatLayer?.();
   syncLayerControls(overlay);
   syncModeControls(overlay);
   refreshActiveLayerLabel(overlay);

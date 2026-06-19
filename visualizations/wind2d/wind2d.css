@@ -37,6 +37,7 @@ body {
 
 .app-shell {
   position: relative;
+  overflow: hidden;
 }
 
 #map {
@@ -995,6 +996,8 @@ body {
   pointer-events: none;
   mix-blend-mode: normal;
   z-index: 420;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .wind-particle-canvas {
@@ -1003,6 +1006,17 @@ body {
   pointer-events: none;
   mix-blend-mode: screen;
   z-index: 610;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.wind-heat-grid .wind-heat-tile {
+  transition: none !important;
+}
+
+.app-shell.wind-overlay-zoom-transition .cfd-wind-canvas,
+.app-shell.wind-overlay-zoom-transition .wind-particle-canvas {
+  transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
 }
 
 @media (max-width: 780px) {
