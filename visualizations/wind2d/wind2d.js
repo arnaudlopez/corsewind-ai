@@ -2,8 +2,9 @@ const DATA_VERSION = new URLSearchParams(window.location.search).get("v") || Str
 const RASTER_ENABLED = new URLSearchParams(window.location.search).get("raster") !== "0";
 const versionedDataUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(DATA_VERSION)}`;
 const cacheBustedUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}poll=${Date.now()}`;
-const DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
+const AROME_DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
 const AROMEPI_DATA_URL = versionedDataUrl("./aromepi-corsica-latest.json");
+const DATA_URL = AROMEPI_DATA_URL;
 const MOLOCH_DATA_URL = versionedDataUrl("./moloch-corsica-latest.json");
 const ICON2I_DATA_URL = versionedDataUrl("./icon2i-corsica-latest.json");
 const RASTER_TILES_MANIFEST_URL = versionedDataUrl("./tiles/manifest.json");
@@ -58,9 +59,11 @@ class AromeWindOverlay extends L.Layer {
     super();
     this.payload = payload;
     this.bbox = payload.bbox_wgs84;
+    this.primaryRawLayer = payload.product === "aromepi" ? "aromepi" : "arome";
+    this.arome = this.primaryRawLayer === "arome" ? buildRawWindLayer(payload) : null;
     this.moloch = buildRawWindLayer(molochPayload);
     this.icon2i = buildRawWindLayer(icon2iPayload);
-    this.aromepi = buildRawWindLayer(aromePiPayload);
+    this.aromepi = buildRawWindLayer(aromePiPayload || (this.primaryRawLayer === "aromepi" ? payload : null));
     this.cfd = buildCfdCorrection(cfdPayload);
     this.coastalTiles = buildCoastalTileLayer(coastalTilePayload);
     this.bayModel = buildBayModelLayer(bayModelPayload);
@@ -81,7 +84,10 @@ class AromeWindOverlay extends L.Layer {
     this.windNinjaCorsicaTiles = buildRasterTileState(windNinjaCorsicaTilePayload);
     this.windNinjaCorsica1mTiles = buildRasterTileState(windNinjaCorsica1mTilePayload);
     this.windNinjaCorsica50mTiles = buildRasterTileState(windNinjaCorsica50mTilePayload);
-    this.visibleLayers = { arome: true, aromepi: false, moloch: false, icon2i: false, windninja50: false };
+    this.rawLayerLoading = { arome: false, aromepi: false, moloch: false, icon2i: false };
+    this.rawLayerLoadError = { arome: null, aromepi: null, moloch: null, icon2i: null };
+    this.rawLayerLoadPromises = {};
+    this.visibleLayers = { arome: this.primaryRawLayer === "arome", aromepi: this.primaryRawLayer === "aromepi", moloch: false, icon2i: false, windninja50: false };
     this.displayMode = "speed";
     this.stepIndex = 0;
     this.activeLeadHour = Number(payload.forecast_steps[0]?.lead_hour ?? 0);
@@ -101,6 +107,10 @@ class AromeWindOverlay extends L.Layer {
 
   get step() {
     return forecastStepByLead(this.payload, this.activeLeadHour);
+  }
+
+  get aromeStep() {
+    return forecastStepByLead(this.arome, this.activeLeadHour);
   }
 
   get localStep() {
@@ -132,6 +142,7 @@ class AromeWindOverlay extends L.Layer {
     this.resetParticles();
     this.refreshTileLayers();
     this.draw();
+    refreshPinnedPointInspector(this);
   }
 
   setScaleMaxKnots(value) {
@@ -155,6 +166,7 @@ class AromeWindOverlay extends L.Layer {
 
   setLayerVisible(layer, visible) {
     if (!["arome", "aromepi", "moloch", "icon2i", "windninja50"].includes(layer)) return;
+    if (layer === "arome" && !this.arome) return;
     if (layer === "aromepi" && !this.aromepi) return;
     if (layer === "moloch" && !this.moloch) return;
     if (layer === "icon2i" && !this.icon2i) return;
@@ -184,6 +196,7 @@ class AromeWindOverlay extends L.Layer {
     refreshActiveLayerLabel(this);
     refreshCoverageStatus(this);
     syncModeControls(this);
+    refreshPinnedPointInspector(this);
   }
 
   setParticlesEnabled(enabled) {
@@ -421,8 +434,8 @@ class AromeWindOverlay extends L.Layer {
 
   aromeFieldAt(latlng, contextFallback = false) {
     return this.rawModelFieldAt(
-      { bbox_wgs84: this.bbox, model_label: "AROME contexte Corse", height_agl_m: 10, resolution: "~1 km" },
-      this.step,
+      this.arome,
+      this.aromeStep,
       latlng,
       contextFallback,
       { sourceType: "arome", sourceLabel: "AROME contexte Corse", heightLabel: "10 m AGL", resolutionLabel: "~1 km" }
@@ -1064,15 +1077,12 @@ class AromeWindOverlay extends L.Layer {
           image.data[offset + 3] = 0;
           continue;
         }
-        const edge = Math.min(x / width, y / height, (width - x) / width, (height - y) / height);
-        const feather = smoothstep(0.02, 0.16, edge);
         image.data[offset] = rgb[0];
         image.data[offset + 1] = rgb[1];
         image.data[offset + 2] = rgb[2];
         const corridorAlpha = render.alpha;
         image.data[offset + 3] = Math.round(
             Math.min(236, corridorAlpha) *
-            feather *
             (field.domainFeather ?? 1) *
             renderAlpha
         );
@@ -1504,6 +1514,7 @@ function buildRawWindLayer(payload) {
 }
 
 const RAW_LAYER_KEYS = ["arome", "aromepi", "moloch", "icon2i"];
+const OPTIONAL_RAW_LAYER_PRELOAD_ORDER = ["arome", "icon2i", "moloch"];
 const RAW_LAYER_LABELS = {
   arome: "AROME",
   aromepi: "AROME-PI",
@@ -1521,6 +1532,10 @@ function rawLayerLabel(layer) {
 
 function anyRawLayerVisible(overlay) {
   return RAW_LAYER_KEYS.some((layer) => Boolean(overlay.visibleLayers?.[layer]));
+}
+
+function refreshPinnedPointInspector(overlay) {
+  overlay?.refreshPinnedPointInspector?.();
 }
 
 function forecastStepByLead(model, leadHour) {
@@ -1569,10 +1584,80 @@ function rawModelKey(overlay) {
 }
 
 function rawModelForKey(overlay, key) {
+  if (key === "arome") return overlay.arome;
   if (key === "aromepi") return overlay.aromepi;
   if (key === "icon2i") return overlay.icon2i;
   if (key === "moloch") return overlay.moloch;
-  return overlay.payload;
+  return null;
+}
+
+function rawModelUrl(layer) {
+  if (layer === "arome") return AROME_DATA_URL;
+  if (layer === "aromepi") return AROMEPI_DATA_URL;
+  if (layer === "moloch") return MOLOCH_DATA_URL;
+  if (layer === "icon2i") return ICON2I_DATA_URL;
+  return null;
+}
+
+function setRawModelPayload(overlay, layer, payload) {
+  const model = buildRawWindLayer(payload);
+  if (!model) return false;
+  if (layer === "arome") overlay.arome = model;
+  if (layer === "aromepi") overlay.aromepi = model;
+  if (layer === "moloch") overlay.moloch = model;
+  if (layer === "icon2i") overlay.icon2i = model;
+  return Boolean(rawModelForKey(overlay, layer));
+}
+
+async function ensureRawModelLoaded(overlay, layer) {
+  if (rawModelForKey(overlay, layer)) return true;
+  const url = rawModelUrl(layer);
+  if (!url) return false;
+  if (overlay.rawLayerLoadPromises?.[layer]) return overlay.rawLayerLoadPromises[layer];
+  overlay.rawLayerLoading[layer] = true;
+  overlay.rawLayerLoadError[layer] = null;
+  syncLayerControls(overlay);
+  overlay.rawLayerLoadPromises[layer] = (async () => {
+    try {
+      const payload = await fetchOptionalJson(url);
+      if (!payload) throw new Error(`Unable to load ${url}`);
+      return setRawModelPayload(overlay, layer, payload);
+    } catch (error) {
+      overlay.rawLayerLoadError[layer] = error;
+      console.warn(`Failed to load ${rawLayerLabel(layer)}`, error);
+      return false;
+    } finally {
+      overlay.rawLayerLoading[layer] = false;
+      delete overlay.rawLayerLoadPromises[layer];
+      syncLayerControls(overlay);
+      refreshPinnedPointInspector(overlay);
+    }
+  })();
+  return overlay.rawLayerLoadPromises[layer];
+}
+
+async function preloadOptionalRawModels(overlay) {
+  if (document.hidden) return;
+  const layers = OPTIONAL_RAW_LAYER_PRELOAD_ORDER.filter(
+    (layer) => !rawModelForKey(overlay, layer) && !overlay.rawLayerLoadError?.[layer]
+  );
+  await Promise.allSettled(layers.map((layer) => ensureRawModelLoaded(overlay, layer)));
+}
+
+function scheduleOptionalRawModelPreload(overlay) {
+  const start = () => {
+    preloadOptionalRawModels(overlay).catch((error) => {
+      console.debug("Optional raw model preload failed", error);
+    });
+  };
+  const afterFirstPaint = () => {
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(start, { timeout: 2500 });
+    } else {
+      window.setTimeout(start, 1200);
+    }
+  };
+  window.requestAnimationFrame(() => window.setTimeout(afterFirstPaint, 350));
 }
 
 function activeRawModel(overlay) {
@@ -1589,9 +1674,7 @@ function displayedValidTimeUtc(overlay) {
 
 function equivalentStepForLayer(overlay, layer) {
   const validTimeUtc = displayedValidTimeUtc(overlay);
-  if (layer === "aromepi") return closestForecastStepByValidTime(overlay.aromepi, validTimeUtc);
-  if (layer === "icon2i") return closestForecastStepByValidTime(overlay.icon2i, validTimeUtc);
-  if (layer === "moloch") return closestForecastStepByValidTime(overlay.moloch, validTimeUtc);
+  if (isRawLayerKey(layer)) return closestForecastStepByValidTime(rawModelForKey(overlay, layer), validTimeUtc);
   return closestForecastStepByValidTime(overlay.payload, validTimeUtc);
 }
 
@@ -2672,21 +2755,31 @@ function syncLayerControls(overlay) {
   for (const button of buttons) {
     const layer = button.dataset.layer;
     if (layer && Object.prototype.hasOwnProperty.call(overlay.visibleLayers, layer)) {
-      const equivalentStep = equivalentStepForLayer(overlay, layer);
       const model = rawModelForKey(overlay, layer);
-      const unavailable = isRawLayerKey(layer) && layer !== "arome" && (!model || !equivalentStep);
+      const loading = Boolean(overlay.rawLayerLoading?.[layer]);
+      const lazyLoadable = isRawLayerKey(layer) && !model && Boolean(rawModelUrl(layer));
+      const equivalentStep = model ? equivalentStepForLayer(overlay, layer) : null;
+      const unavailable = isRawLayerKey(layer) && !loading && !lazyLoadable && (!model || !equivalentStep);
       const visible = Boolean(overlay.visibleLayers[layer]);
       button.classList.toggle("active", visible);
       button.classList.toggle("disabled", unavailable);
-      button.disabled = unavailable;
+      button.classList.toggle("loading", loading);
+      button.disabled = unavailable || loading;
       button.setAttribute("aria-pressed", String(visible));
-      button.setAttribute("aria-disabled", String(unavailable));
-      if (unavailable) {
+      button.setAttribute("aria-disabled", String(unavailable || loading));
+      if (loading) {
+        button.title = `Chargement ${rawLayerLabel(layer)}...`;
+      } else if (lazyLoadable) {
+        const label = rawLayerLabel(layer);
+        button.title = overlay.rawLayerLoadError?.[layer]
+          ? `${label} non chargé: cliquez pour réessayer`
+          : `Charger ${label}`;
+      } else if (unavailable) {
         const label = rawLayerLabel(layer);
         button.title = model
           ? `${label} hors tranche ${formatForecastDay(displayedValidTimeUtc(overlay))} ${formatClock(displayedValidTimeUtc(overlay))}`
           : `${label} indisponible: générez ${layer === "icon2i" ? "icon2i" : layer}-corsica-latest.json`;
-      } else if (isRawLayerKey(layer) && layer !== "arome") {
+      } else if (isRawLayerKey(layer)) {
         const label = rawLayerLabel(layer);
         button.title = `${label} H+${equivalentStep.lead_hour} disponible pour ${formatForecastDay(equivalentStep.valid_time_utc)} ${formatClock(equivalentStep.valid_time_utc)}`;
       }
@@ -2698,9 +2791,18 @@ function bindLayerControl(overlay, payload) {
   const buttons = [...document.querySelectorAll(".layer-toggle, .map-layer-button")];
   syncLayerControls(overlay);
   buttons.forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const layer = button.dataset.layer;
+      if (button.disabled || !layer) return;
       const nextVisible = !button.classList.contains("active");
+      if (nextVisible && isRawLayerKey(layer) && !rawModelForKey(overlay, layer)) {
+        const loaded = await ensureRawModelLoaded(overlay, layer);
+        if (!loaded) {
+          syncLayerControls(overlay);
+          updateReadout(payload, overlay);
+          return;
+        }
+      }
       overlay.setLayerVisible(layer, nextVisible);
       syncLayerControls(overlay);
       buildForecastButtons(payload, overlay);
@@ -3109,17 +3211,56 @@ function buildForecastButtons(payload, overlay) {
 
 function bindMapReadout(map, overlay) {
   let inspectorLocked = false;
+  let lockedContainerPoint = null;
+  let selectedPointMarker = null;
   let pendingFrame = null;
   let touchMoved = false;
+
+  const ensureSelectedPointMarker = (containerPoint) => {
+    if (!containerPoint) return;
+    if (!selectedPointMarker) {
+      selectedPointMarker = document.createElement("div");
+      selectedPointMarker.className = "point-inspector-anchor";
+      selectedPointMarker.setAttribute("aria-hidden", "true");
+      document.querySelector(".app-shell").appendChild(selectedPointMarker);
+    }
+    selectedPointMarker.style.transform = `translate(${Math.round(containerPoint.x - 5)}px, ${Math.round(containerPoint.y - 5)}px)`;
+  };
+
+  const clearSelectedPointMarker = () => {
+    if (!selectedPointMarker) return;
+    selectedPointMarker.remove();
+    selectedPointMarker = null;
+  };
 
   const scheduleInspect = (event, locked = inspectorLocked) => {
     if (inspectorLocked && !locked) return;
     if (pendingFrame) cancelAnimationFrame(pendingFrame);
     pendingFrame = requestAnimationFrame(() => {
       pendingFrame = null;
-      updatePointInspector(event.latlng, event.containerPoint, overlay, map, locked);
+      const containerPoint = event.containerPoint || map.latLngToContainerPoint(event.latlng);
+      updatePointInspector(event.latlng, containerPoint, overlay, map, locked);
     });
   };
+
+  const refreshLockedInspection = () => {
+    if (!inspectorLocked || !lockedContainerPoint) return;
+    const size = map.getSize();
+    if (
+      lockedContainerPoint.x < 0 ||
+      lockedContainerPoint.y < 0 ||
+      lockedContainerPoint.x > size.x ||
+      lockedContainerPoint.y > size.y
+    ) {
+      hidePointInspector();
+      return;
+    }
+    const latlng = map.containerPointToLatLng(lockedContainerPoint);
+    ensureSelectedPointMarker(lockedContainerPoint);
+    scheduleInspect({ latlng, containerPoint: lockedContainerPoint }, true);
+    updatePointReadout(latlng, overlay);
+  };
+  overlay.refreshPinnedPointInspector = refreshLockedInspection;
 
   const touchEventToInspectEvent = (touch) => {
     const rect = map.getContainer().getBoundingClientRect();
@@ -3144,10 +3285,14 @@ function bindMapReadout(map, overlay) {
       }
       inspectorLocked = !inspectorLocked;
       if (!inspectorLocked) {
+        lockedContainerPoint = null;
+        clearSelectedPointMarker();
         hidePointInspector();
         return;
       }
-      scheduleInspect(event, true);
+      lockedContainerPoint = event.containerPoint;
+      ensureSelectedPointMarker(lockedContainerPoint);
+      refreshLockedInspection();
       return;
     }
     if (!inspectorLocked) {
@@ -3158,6 +3303,7 @@ function bindMapReadout(map, overlay) {
   map.on("mouseout", () => {
     if (!inspectorLocked) hidePointInspector();
   });
+  map.on("move zoom resize", refreshLockedInspection);
   map.getContainer().addEventListener(
     "touchstart",
     (event) => {
@@ -3179,6 +3325,8 @@ function bindMapReadout(map, overlay) {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && inspectorLocked) {
       inspectorLocked = false;
+      lockedContainerPoint = null;
+      clearSelectedPointMarker();
       hidePointInspector();
     }
   });
@@ -3202,8 +3350,16 @@ function updatePointInspector(latlng, containerPoint, overlay, map, locked = fal
   }
   inspector.hidden = false;
   inspector.classList.toggle("locked", locked);
-  document.querySelector("#point-inspector-speed").textContent = point.speedText;
-  document.querySelector("#point-inspector-detail").textContent = point.detail;
+  inspector.classList.toggle("point-inspector--metrics", Boolean(point.metricsHtml));
+  const speedNode = document.querySelector("#point-inspector-speed");
+  const detailNode = document.querySelector("#point-inspector-detail");
+  if (point.metricsHtml) {
+    speedNode.innerHTML = point.metricsHtml;
+    detailNode.textContent = "";
+  } else {
+    speedNode.textContent = point.speedText;
+    detailNode.textContent = point.detail;
+  }
   inspector.title = [locked ? "Point épinglé" : null, point.source, point.title || point.detail].filter(Boolean).join(" · ");
   positionPointInspector(inspector, containerPoint, map);
   if (point.loading) {
@@ -3248,13 +3404,16 @@ function buildPointInspection(latlng, overlay) {
   const note = rawField.gustSpeedKnots && rawField.meanSpeedKnots
     ? `rafale ${rawField.gustSpeedKnots.toFixed(1)} kt · moyen ${rawField.meanSpeedKnots.toFixed(1)} kt`
     : `${label} brut`;
+  const meanKnots = rawField.meanSpeedKnots ?? rawField.speedKnots;
   return {
     source,
-    speedText: `${rawField.speedKnots.toFixed(1)} kt`,
-    detail: compactPointDetail({
+    speedText: `${meanKnots.toFixed(1)} kt`,
+    metricsHtml: compactWindMetricsHtml({
+      meanKnots,
+      gustKnots: rawField.gustSpeedKnots,
       windFromDeg: rawField.windFromDeg,
-      note,
     }),
+    detail: compactPointDetail({ windFromDeg: rawField.windFromDeg }),
     title: fullPointDetail({
       windFromDeg: rawField.windFromDeg,
       heightLabel: rawField.heightLabel,
@@ -3286,10 +3445,11 @@ function windNinjaPointInspection(latlng, overlay, aromeField) {
     return {
       source: `${layer.label} ${resolution} m / ${height} m`,
       speedText: `${sample.speedKt.toFixed(1)} kt`,
-      detail: compactPointDetail({
+      metricsHtml: compactWindMetricsHtml({
+        meanKnots: sample.speedKt,
         windFromDeg: aromeField?.windFromDeg,
-        note: ratioLabel,
       }),
+      detail: compactPointDetail({ windFromDeg: aromeField?.windFromDeg }),
       title: fullPointDetail({
         windFromDeg: aromeField?.windFromDeg,
         heightLabel: `${height} m AGL`,
@@ -3304,10 +3464,11 @@ function windNinjaPointInspection(latlng, overlay, aromeField) {
       source: "WindNinja data",
       speedText: `${aromeField.speedKnots.toFixed(1)} kt`,
       loading: true,
-      detail: compactPointDetail({
+      metricsHtml: compactWindMetricsHtml({
+        meanKnots: aromeField.speedKnots,
         windFromDeg: aromeField.windFromDeg,
-        note: "chargement WN",
       }),
+      detail: compactPointDetail({ windFromDeg: aromeField.windFromDeg }),
       title: fullPointDetail({
         windFromDeg: aromeField.windFromDeg,
         heightLabel: aromeField.heightLabel,
@@ -3318,6 +3479,18 @@ function windNinjaPointInspection(latlng, overlay, aromeField) {
     };
   }
   return null;
+}
+
+function compactWindMetricsHtml({ meanKnots, gustKnots, windFromDeg }) {
+  const direction = windFromDeg === null || windFromDeg === undefined ? "--" : `${Math.round(windFromDeg)}°`;
+  const rows = [
+    `<span class="point-inspector__metric"><span>Moy.</span><strong>${meanKnots.toFixed(1)}</strong></span>`,
+  ];
+  if (Number.isFinite(gustKnots)) {
+    rows.push(`<span class="point-inspector__metric point-inspector__metric--gust"><span>Raf.</span><strong>${gustKnots.toFixed(1)}</strong></span>`);
+  }
+  rows.push(`<span class="point-inspector__metric point-inspector__metric--dir"><span>Dir.</span><strong>${direction}</strong></span>`);
+  return rows.join("");
 }
 
 function compactPointDetail({ windFromDeg, note }) {
@@ -3397,13 +3570,7 @@ async function main() {
   const response = await fetch(DATA_URL);
   if (!response.ok) throw new Error(`Unable to load ${DATA_URL}`);
   const payload = await response.json();
-  const aromePiPayload = await fetchOptionalJson(AROMEPI_DATA_URL);
-  const molochPayload = await fetchOptionalJson(MOLOCH_DATA_URL);
-  const icon2iPayload = await fetchOptionalJson(ICON2I_DATA_URL);
-  const windNinjaCorsica50mTilePayload =
-    (await fetchOptionalJson(WINDNINJA_CORSICA_50M_DATA_MANIFEST_URL)) ||
-    (await fetchOptionalJson(WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL));
-  const overlay = new AromeWindOverlay(payload, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, windNinjaCorsica50mTilePayload, molochPayload, icon2iPayload, aromePiPayload);
+  const overlay = new AromeWindOverlay(payload);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
   overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
   applyPreferredForecastLayer(overlay);
@@ -3421,6 +3588,12 @@ async function main() {
   buildForecastButtons(payload, overlay);
   bindMapReadout(map, overlay);
   updateReadout(payload, overlay);
+  scheduleOptionalRawModelPreload(overlay);
+  window.setTimeout(() => {
+    refreshWindNinja50mManifest(payload, overlay).catch((error) => {
+      console.debug("WindNinja initial manifest refresh failed", error);
+    });
+  }, 0);
   startProgressiveWindNinjaPolling(payload, overlay);
 }
 
