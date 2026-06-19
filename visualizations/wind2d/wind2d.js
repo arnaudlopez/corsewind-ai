@@ -143,7 +143,11 @@ class AromeWindOverlay extends L.Layer {
   setLayerVisible(layer, visible) {
     if (!["arome", "moloch", "windninja50"].includes(layer)) return;
     if (layer === "moloch" && !this.moloch) return;
-    if (visible && layer === "moloch" && !this.molochStep) return;
+    if (visible) {
+      const equivalentStep = equivalentStepForLayer(this, layer);
+      if (!equivalentStep) return;
+      setActiveLeadHour(this, equivalentStep.lead_hour);
+    }
     if (visible && layer === "moloch") this.visibleLayers.arome = false;
     if (visible && layer === "arome") this.visibleLayers.moloch = false;
     if (visible && layer === "windninja50") {
@@ -1452,6 +1456,23 @@ function forecastIndexByLead(model, leadHour) {
   return model.forecast_steps.findIndex((step) => Number(step.lead_hour) === Number(leadHour));
 }
 
+function forecastStepByValidTime(model, validTimeUtc) {
+  if (!model?.forecast_steps?.length || !validTimeUtc) return null;
+  const targetMs = new Date(validTimeUtc).getTime();
+  if (!Number.isFinite(targetMs)) return null;
+  return (
+    model.forecast_steps.find((step) => step.valid_time_utc === validTimeUtc) ||
+    model.forecast_steps.find((step) => new Date(step.valid_time_utc).getTime() === targetMs) ||
+    null
+  );
+}
+
+function setActiveLeadHour(overlay, leadHour) {
+  overlay.activeLeadHour = Number(leadHour);
+  const aromeIndex = forecastIndexByLead(overlay.payload, overlay.activeLeadHour);
+  if (aromeIndex >= 0) overlay.stepIndex = aromeIndex;
+}
+
 function rawModelKey(overlay) {
   return overlay.visibleLayers.moloch && overlay.moloch ? "moloch" : "arome";
 }
@@ -1467,6 +1488,16 @@ function activeRawModel(overlay) {
 
 function activeRawStep(overlay) {
   return forecastStepByLead(activeRawModel(overlay), overlay.activeLeadHour);
+}
+
+function displayedValidTimeUtc(overlay) {
+  return activeRawStep(overlay)?.valid_time_utc || overlay.step?.valid_time_utc || overlay.molochStep?.valid_time_utc || null;
+}
+
+function equivalentStepForLayer(overlay, layer) {
+  const validTimeUtc = displayedValidTimeUtc(overlay);
+  if (layer === "moloch") return forecastStepByValidTime(overlay.moloch, validTimeUtc);
+  return forecastStepByValidTime(overlay.payload, validTimeUtc);
 }
 
 function buildExpandedWindLayer(payload) {
@@ -2457,7 +2488,8 @@ function syncLayerControls(overlay) {
   for (const button of buttons) {
     const layer = button.dataset.layer;
     if (layer && Object.prototype.hasOwnProperty.call(overlay.visibleLayers, layer)) {
-      const unavailable = layer === "moloch" && (!overlay.moloch || !overlay.molochStep);
+      const equivalentStep = equivalentStepForLayer(overlay, layer);
+      const unavailable = layer === "moloch" && (!overlay.moloch || !equivalentStep);
       const visible = Boolean(overlay.visibleLayers[layer]);
       button.classList.toggle("active", visible);
       button.classList.toggle("disabled", unavailable);
@@ -2466,8 +2498,10 @@ function syncLayerControls(overlay) {
       button.setAttribute("aria-disabled", String(unavailable));
       if (unavailable) {
         button.title = overlay.moloch
-          ? `MOLOCH hors échéance H+${overlay.activeLeadHour}`
+          ? `MOLOCH hors tranche ${formatForecastDay(displayedValidTimeUtc(overlay))} ${formatClock(displayedValidTimeUtc(overlay))}`
           : "MOLOCH indisponible: générez moloch-corsica-latest.json";
+      } else if (layer === "moloch") {
+        button.title = `MOLOCH H+${equivalentStep.lead_hour} disponible pour ${formatForecastDay(equivalentStep.valid_time_utc)} ${formatClock(equivalentStep.valid_time_utc)}`;
       }
     }
   }

@@ -659,7 +659,7 @@ body {
 
 .forecast-step {
   display: grid;
-  flex: 0 0 88px;
+  flex: 0 0 108px;
   height: 62px;
   place-items: center;
   gap: 1px;
@@ -683,7 +683,7 @@ body {
 .forecast-step em,
 .forecast-step small {
   display: block;
-  max-width: 78px;
+  max-width: 98px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1024,7 +1024,7 @@ body {
   }
 
   .forecast-step {
-    flex-basis: 82px;
+    flex-basis: 104px;
     height: 58px;
     font-size: 0.56rem;
   }
