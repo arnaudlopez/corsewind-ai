@@ -88,6 +88,9 @@ python3 scripts/run_forecast_update_engine.py \
   --windninja-runtime-min 60
 ```
 
+When MOLOCH is enabled without `--moloch-lead-hours`, the engine publishes
+every lead hour available in the MeteoHub/CNR-ISAC bundle.
+
 Daemon mode:
 
 ```bash

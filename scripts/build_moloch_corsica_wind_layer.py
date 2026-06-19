@@ -28,7 +28,6 @@ from meteo_france_client import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BBOX = (8.45, 41.25, 9.75, 43.1)
-DEFAULT_LEAD_HOURS = (0, 1, 3, 6, 9, 12, 24, 36, 48)
 DEFAULT_GRID_STEP_DEG = 0.0113
 DEFAULT_SOURCE_LABEL = "CNR-ISAC MOLOCH-ISAC via MeteoHub GRIB2"
 
@@ -263,11 +262,36 @@ def lead_values_hours(array: Any) -> tuple[str | None, np.ndarray | None]:
     return None, None
 
 
+def available_lead_hours(array: Any) -> tuple[int, ...]:
+    dim, leads = lead_values_hours(array)
+    if dim is None or leads is None:
+        return (0,)
+    rounded: list[int] = []
+    for value in leads:
+        number = float(value)
+        nearest = int(round(number))
+        if abs(number - nearest) > 1e-6:
+            continue
+        rounded.append(nearest)
+    return tuple(dict.fromkeys(rounded))
+
+
+def common_lead_hours(*arrays: Any) -> tuple[int, ...]:
+    lead_sets = [set(available_lead_hours(array)) for array in arrays if array is not None]
+    if not lead_sets:
+        return ()
+    return tuple(sorted(set.intersection(*lead_sets)))
+
+
 def select_lead(array: Any, lead_hour: int) -> Any:
     dim, leads = lead_values_hours(array)
     selected = array
     if dim and leads is not None and array.sizes.get(dim, 1) > 1:
-        index = int(np.argmin(np.abs(leads - lead_hour)))
+        diffs = np.abs(leads - lead_hour)
+        index = int(np.argmin(diffs))
+        if float(diffs[index]) > 1e-6:
+            available = ", ".join(str(item) for item in available_lead_hours(array))
+            raise SystemExit(f"Requested H+{lead_hour} is not available for {array.name}. Available lead hours: {available}")
         selected = selected.isel({dim: index})
     for dim_name, size in list(selected.sizes.items()):
         if size == 1 and dim_name not in ("latitude", "longitude", "lat", "lon", "y", "x"):
@@ -384,8 +408,12 @@ def build_payload(input_path: Path, args: argparse.Namespace) -> dict[str, Any]:
 
     run_time = run_time_from_arrays(u_array, v_array)
     bbox = tuple(args.bbox)
+    lead_hours = tuple(args.lead_hours) if args.lead_hours else common_lead_hours(u_array, v_array, speed_array)
+    if not lead_hours:
+        raise SystemExit(f"Cannot determine available MOLOCH lead hours in {input_path}.")
+
     steps = []
-    for lead_hour in args.lead_hours:
+    for lead_hour in lead_hours:
         u_selected = select_lead(u_array, lead_hour)
         v_selected = select_lead(v_array, lead_hour)
         lat, lon = array_lat_lon(u_selected)
@@ -444,7 +472,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw/moloch_corsica_latest"))
     parser.add_argument("--output", type=Path, default=Path("visualizations/wind2d/moloch-corsica-latest.json"))
     parser.add_argument("--bbox", nargs=4, type=float, default=DEFAULT_BBOX, metavar=("MIN_LON", "MIN_LAT", "MAX_LON", "MAX_LAT"))
-    parser.add_argument("--lead-hours", nargs="+", type=int, default=list(DEFAULT_LEAD_HOURS))
+    parser.add_argument("--lead-hours", nargs="+", type=int, default=None, help="Lead hours to publish. Defaults to every lead hour available in the source bundle.")
     parser.add_argument("--grid-step-deg", type=float, default=DEFAULT_GRID_STEP_DEG)
     parser.add_argument("--download-timeout-sec", type=int, default=180)
     parser.add_argument("--source-label", default=DEFAULT_SOURCE_LABEL)

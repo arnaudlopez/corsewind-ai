@@ -31,9 +31,12 @@ Build from a local GRIB/NetCDF file:
 
 ```bash
 python3 scripts/build_moloch_corsica_wind_layer.py \
-  --input data/raw/moloch/moloch_bundle.grib2 \
-  --lead-hours 0 1 3 6 9 12 24 36 48
+  --input data/raw/moloch/moloch_bundle.grib2
 ```
+
+By default, the builder publishes every forecast lead hour available in the
+source bundle. Pass `--lead-hours` only when you intentionally want a smaller
+subset.
 
 Build from a direct MeteoHub bundle URL:
 
@@ -87,3 +90,6 @@ When present, the `M` layer button becomes active and displays MOLOCH as a raw
 
 AROME and MOLOCH are exclusive raw layers in the UI. WindNinja remains the
 preferred downscaled layer when a matching 50 m step is available.
+
+The forecast strip is rebuilt from the active raw model, so a MOLOCH payload
+with hourly lead times displays every published hourly forecast step.

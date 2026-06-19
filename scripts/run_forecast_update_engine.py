@@ -291,11 +291,11 @@ def arome_refresh_command(lead_hours: tuple[str, ...], request_sleep_sec: float)
 
 def moloch_refresh_command(source: str | None, lead_hours: tuple[str, ...]) -> tuple[str, ...]:
     source_args = ("--input", source) if source else ()
+    lead_args = ("--lead-hours", *lead_hours) if lead_hours else ()
     return (
         "scripts/build_moloch_corsica_wind_layer.py",
         *source_args,
-        "--lead-hours",
-        *lead_hours,
+        *lead_args,
     )
 
 
@@ -510,7 +510,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     started = time.time()
     commands: list[dict[str, Any]] = []
     arome_lead_hours = resolve_arome_lead_hours(args)
-    moloch_lead_hours = tuple(str(item) for item in (args.moloch_lead_hours or arome_lead_hours))
+    moloch_lead_hours = tuple(str(item) for item in (args.moloch_lead_hours or ()))
     icon2i_lead_hours = tuple(str(item) for item in (args.icon2i_lead_hours or arome_lead_hours))
     status: dict[str, Any] = {
         "format": "corsewind.forecast_update_engine.status.v1",
@@ -524,7 +524,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
         "forced": bool(args.force),
         "arome_lead_hours": list(arome_lead_hours),
         "moloch_enabled": bool(args.enable_moloch),
-        "moloch_lead_hours": list(moloch_lead_hours),
+        "moloch_lead_hours": list(moloch_lead_hours) if moloch_lead_hours else "all_available",
         "icon2i_enabled": bool(args.enable_icon2i),
         "icon2i_dataset": args.icon2i_dataset,
         "icon2i_lead_hours": list(icon2i_lead_hours),
