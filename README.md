@@ -88,8 +88,8 @@ python3 scripts/run_forecast_update_engine.py \
   --windninja-runtime-min 60
 ```
 
-When MOLOCH is enabled without `--moloch-lead-hours`, the engine publishes
-every lead hour available in the MeteoHub/CNR-ISAC bundle.
+When MOLOCH or ICON-2I are enabled without explicit `--*-lead-hours`, the
+engine publishes every lead hour available in the MeteoHub source bundle.
 
 Daemon mode:
 
@@ -99,6 +99,7 @@ python3 scripts/run_forecast_update_engine.py \
   --aromepi-poll-interval-sec 300 \
   --aromepi-stale-poll-interval-sec 60 \
   --aromepi-freshness-target-sec 900 \
+  --aromepi-horizon-hours 24 \
   --fast-window-poll-interval-sec 60 \
   --enable-moloch \
   --moloch-poll-interval-sec 1800 \
@@ -110,8 +111,10 @@ python3 scripts/run_forecast_update_engine.py \
 
 The daemon tracks source state independently under `models.arome`,
 `models.aromepi`, `models.moloch`, and `models.icon2i`. Wind2D JSON layers are
-refreshed per source when due; WindNinja 50 m is rebuilt only when the main
-AROME forcing run changes, or when `--force` is explicitly passed.
+refreshed per source when due. Model layers publish all available forecast data
+by default, except AROME-PI which publishes the next 24 hours at 15-minute
+steps. WindNinja 50 m keeps its own session-hour selection and is rebuilt only
+when the main AROME forcing run changes, or when `--force` is explicitly passed.
 Each source also records `publication_history` so the scheduler can learn
 real publication delays and switch to 60-second polling inside expected fast
 publication windows.

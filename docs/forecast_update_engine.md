@@ -6,11 +6,20 @@ Ce moteur surveille regulierement la disponibilite d'une nouvelle prevision AROM
 
 Le but du produit est de transformer une prevision synoptique AROME en une couche de vent plus exploitable pour la lecture locale des effets de relief, couloirs, accelerations et deventes sur la Corse. Pour l'instant, le moteur ne lance pas les anciennes couches fines Ajaccio/Ricanto et ne gere pas les variantes 100 m ou 1 m.
 
-## Strategie d'echeances windsurf
+## Strategie d'echeances
 
-AROME publie des runs toutes les 3 h environ, mais chaque run contient des echeances horaires. Le moteur inspecte d'abord le dernier run disponible, calcule les heures utiles pour la session, puis telecharge seulement ces pas horaires AROME. Le mode large `H+0..H+48` reste possible, mais il n'est plus le comportement par defaut.
+Les couches modele Wind2D et les calculs WindNinja n'ont pas la meme strategie.
+Les couches modele doivent permettre la comparaison complete entre modeles :
 
-Regle par defaut :
+- AROME : toutes les echeances `H+0..H+48` ;
+- MOLOCH : toutes les echeances disponibles dans le bundle source ;
+- ICON-2I : toutes les echeances disponibles dans le bundle source ;
+- AROME-PI : les prochaines 24 h uniquement, au pas 15 minutes.
+
+WindNinja reste un produit derive couteux. Il garde donc une selection
+operationnelle centree sur les heures de session.
+
+Regle WindNinja par defaut :
 
 - aujourd'hui : toutes les heures de `11h` a `17h` locale ;
 - demain : heures clefs `11h`, `13h`, `15h`, `17h` locale ;
@@ -53,18 +62,18 @@ Le moteur publie maintenant les sorties WindNinja de maniere progressive. Apres 
 
 ## Detection d'une mise a jour
 
-Le script `scripts/run_forecast_update_engine.py` appelle d'abord le refresh AROME :
+Le script `scripts/run_forecast_update_engine.py` appelle d'abord le refresh AROME modele :
 
 ```bash
 python scripts/build_arome_corsica_wind_layer.py \
-  --lead-hours <echeances_session> \
+  --lead-hours 0 1 2 ... 48 \
   --request-sleep-sec 1.3
 ```
 
-Pour une recuperation exhaustive, on peut forcer l'ancien mode :
+Pour limiter AROME a la fenetre session, on peut encore forcer l'ancien mode :
 
 ```bash
-python3 scripts/run_forecast_update_engine.py --arome-lead-hour-policy all-48
+python3 scripts/run_forecast_update_engine.py --arome-lead-hour-policy session
 ```
 
 Le fichier de reference est :
@@ -207,6 +216,7 @@ python3 scripts/run_forecast_update_engine.py \
   --aromepi-poll-interval-sec 300 \
   --aromepi-stale-poll-interval-sec 60 \
   --aromepi-freshness-target-sec 900 \
+  --aromepi-horizon-hours 24 \
   --fast-window-poll-interval-sec 60 \
   --enable-moloch \
   --moloch-poll-interval-sec 1800 \
@@ -214,10 +224,10 @@ python3 scripts/run_forecast_update_engine.py \
   --icon2i-poll-interval-sec 1800
 ```
 
-Par defaut, AROME-PI passe donc en polling rapide toutes les 60 secondes
-lorsque le dernier run vu a plus de 15 minutes. Le but est de capter rapidement
-les produits immediats sans relancer WindNinja tant que le forcage AROME
-principal n'a pas change.
+Par defaut, AROME-PI publie les prochaines 24 h et passe en polling rapide
+toutes les 60 secondes lorsque le dernier run vu a plus de 15 minutes. Le but
+est de capter rapidement les produits immediats sans relancer WindNinja tant
+que le forcage AROME principal n'a pas change.
 
 Le moteur observe egalement les publications reelles. Chaque source conserve un
 historique `publication_history` avec :
@@ -349,8 +359,9 @@ Configuration par defaut :
 - AROME-PI : polling toutes les 5 minutes quand frais, puis toutes les 60 secondes si le dernier run vu a plus de 15 minutes ;
 - MOLOCH et ICON-2I : polling toutes les 30 minutes lorsqu'ils sont actives ;
 - backoff par source apres erreur : 5 minutes, puis exponentiel jusqu'a 30 minutes ;
-- lead hours AROME : par defaut seulement les echeances session utiles ;
-- mode exhaustif optionnel : `--arome-lead-hour-policy all-48` ;
+- lead hours AROME modele : `H+0..H+48` par defaut ;
+- AROME-PI : prochaines 24 h au pas 15 minutes ;
+- mode AROME reduit optionnel : `--arome-lead-hour-policy session` ;
 - pause AROME : `1.3 s` apres chaque raster telecharge, pour rester compatible avec le quota API ;
 - selection WindNinja : fenetre windsurf locale `11h-17h`, aujourd'hui horaire, demain toutes les 2 h ;
 - produit WindNinja : 50 m, hauteur 10 m ;

@@ -41,7 +41,7 @@ GUST_VARIABLES_BY_RESOLUTION = {
 }
 
 DEFAULT_BBOX = (8.45, 41.25, 9.75, 43.1)
-DEFAULT_LEAD_HOURS = (0, 1, 3, 6, 9, 12, 24)
+DEFAULT_LEAD_HOURS = tuple(range(0, 49))
 
 
 def coverage_run_time(coverage_id: str, variable_prefix: str, suffix: str = "") -> datetime | None:

@@ -278,16 +278,6 @@ def available_forecast_steps() -> list[dict[str, Any]]:
     return list(payload.get("forecast_steps") or [])
 
 
-def available_arome_lead_hours() -> tuple[str, ...]:
-    leads: list[str] = []
-    for step in available_forecast_steps():
-        try:
-            leads.append(str(int(step["lead_hour"])))
-        except (KeyError, TypeError, ValueError):
-            continue
-    return tuple(leads)
-
-
 def select_windninja_steps(args: argparse.Namespace) -> list[dict[str, Any]]:
     steps = available_forecast_steps()
     if not steps:
@@ -524,12 +514,8 @@ def arome_refresh_command(lead_hours: tuple[str, ...], request_sleep_sec: float,
 def arome_pi_refresh_command(args: argparse.Namespace) -> tuple[str, ...]:
     return (
         "scripts/build_aromepi_corsica_wind_layer.py",
-        "--session-start-hour",
-        str(args.session_start_hour),
-        "--session-end-hour",
-        str(args.session_end_hour),
-        "--timezone",
-        args.session_timezone,
+        "--horizon-hours",
+        str(args.aromepi_horizon_hours),
         "--request-sleep-sec",
         str(args.aromepi_request_sleep_sec),
         *cleanup_raw_args(args),
@@ -551,13 +537,13 @@ def moloch_refresh_command(source: str | None, dataset: str, lead_hours: tuple[s
 
 def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[str, ...], cleanup_raw: bool) -> tuple[str, ...]:
     source_args = ("--input", source) if source else ()
+    lead_args = ("--lead-hours", *lead_hours) if lead_hours else ()
     return (
         "scripts/build_icon2i_corsica_wind_layer.py",
         *source_args,
         "--dataset",
         dataset,
-        "--lead-hours",
-        *lead_hours,
+        *lead_args,
         "--cleanup-raw" if cleanup_raw else "--no-cleanup-raw",
     )
 
@@ -1022,9 +1008,8 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     }
     arome_due = bool(source_decisions.get("arome", {}).get("due"))
     arome_lead_hours = resolve_arome_lead_hours(args) if arome_due or args.force else tuple(str(item) for item in (args.lead_hours or ()))
-    published_arome_lead_hours = arome_lead_hours or available_arome_lead_hours()
     moloch_lead_hours = tuple(str(item) for item in (args.moloch_lead_hours or ()))
-    icon2i_lead_hours = tuple(str(item) for item in (args.icon2i_lead_hours or published_arome_lead_hours or DEFAULT_LEAD_HOURS))
+    icon2i_lead_hours = tuple(str(item) for item in (args.icon2i_lead_hours or ()))
     status: dict[str, Any] = {
         "format": "corsewind.forecast_update_engine.status.v1",
         "generated_at_utc": utc_now(),
@@ -1039,6 +1024,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             "aromepi_poll_interval_sec": args.aromepi_poll_interval_sec,
             "aromepi_stale_poll_interval_sec": args.aromepi_stale_poll_interval_sec,
             "aromepi_freshness_target_sec": args.aromepi_freshness_target_sec,
+            "aromepi_horizon_hours": args.aromepi_horizon_hours,
             "moloch_poll_interval_sec": args.moloch_poll_interval_sec,
             "icon2i_poll_interval_sec": args.icon2i_poll_interval_sec,
             "source_error_backoff_sec": args.source_error_backoff_sec,
@@ -1055,7 +1041,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
         "moloch_lead_hours": list(moloch_lead_hours) if moloch_lead_hours else "all_available",
         "icon2i_enabled": bool(args.enable_icon2i),
         "icon2i_dataset": args.icon2i_dataset,
-        "icon2i_lead_hours": list(icon2i_lead_hours),
+        "icon2i_lead_hours": list(icon2i_lead_hours) if icon2i_lead_hours else "all_available",
         "selection_policy": {
             "timezone": args.session_timezone,
             "session_start_hour": args.session_start_hour,
@@ -1286,13 +1272,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=True, help="Delete raw weather downloads after derived Wind2D artifacts are published.")
     parser.add_argument("--lead-hours", nargs="+", default=None)
-    parser.add_argument("--arome-lead-hour-policy", choices=["session", "all-48"], default="session")
+    parser.add_argument("--arome-lead-hour-policy", choices=["session", "all-48"], default="all-48")
     parser.add_argument("--arome-poll-interval-sec", type=int, default=900, help="Normal polling interval for the main AROME source.")
     parser.add_argument("--arome-request-sleep-sec", type=float, default=1.3)
     parser.add_argument("--enable-aromepi", action=argparse.BooleanOptionalAction, default=True, help="Build the AROME-PI hybrid 15 min nowcast viewer layer.")
     parser.add_argument("--aromepi-poll-interval-sec", type=int, default=300, help="Normal polling interval for AROME-PI when the source is fresh.")
     parser.add_argument("--aromepi-stale-poll-interval-sec", type=int, default=60, help="Fast AROME-PI polling interval once the last seen run is older than the freshness target.")
     parser.add_argument("--aromepi-freshness-target-sec", type=int, default=900, help="AROME-PI freshness target before switching to fast polling.")
+    parser.add_argument("--aromepi-horizon-hours", type=int, default=24, help="Rolling AROME-PI forecast horizon to publish.")
     parser.add_argument("--aromepi-request-sleep-sec", type=float, default=0.2)
     parser.add_argument("--enable-moloch", action="store_true", help="Build the optional MOLOCH 1.2 km viewer layer.")
     parser.add_argument("--moloch-input", default=None, help="Local GRIB/NetCDF/JSON file or direct URL. Defaults to MOLOCH_SOURCE_URL.")

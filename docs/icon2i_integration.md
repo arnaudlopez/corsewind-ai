@@ -51,9 +51,12 @@ Build from a local GRIB/NetCDF file:
 
 ```bash
 python3 scripts/build_icon2i_corsica_wind_layer.py \
-  --input data/raw/icon2i/icon2i_bundle.grib \
-  --lead-hours 0 1 3 6 9 12 24 36 48 72
+  --input data/raw/icon2i/icon2i_bundle.grib
 ```
+
+By default, the builder publishes every forecast lead hour available in the
+source bundle. Pass `--lead-hours` only when you intentionally want a smaller
+subset.
 
 The output is:
 
@@ -80,8 +83,10 @@ python3 scripts/run_forecast_update_engine.py --once --enable-icon2i
 ```
 
 The engine records `icon2i_enabled`, `icon2i_dataset`, and
-`icon2i_lead_hours` in the status file. ICON-2I is independent from the AROME
-run used to decide whether WindNinja 50 m should be rebuilt.
+`icon2i_lead_hours` in the status file. When no explicit lead-hour list is
+configured, `icon2i_lead_hours` is reported as `all_available`. ICON-2I is
+independent from the AROME run used to decide whether WindNinja 50 m should be
+rebuilt.
 
 ## Viewer
 

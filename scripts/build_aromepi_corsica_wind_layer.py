@@ -12,7 +12,7 @@ import json
 import math
 import re
 import time
-from datetime import datetime, time as day_time, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BBOX = (8.45, 41.25, 9.75, 43.1)
 DEFAULT_SESSION_START_HOUR = 11
 DEFAULT_SESSION_END_HOUR = 18
+DEFAULT_HORIZON_HOURS = 24
 DEFAULT_TIMEZONE = "Europe/Paris"
 
 MEAN_VARIABLES = {
@@ -83,37 +84,33 @@ def load_capabilities(product: str, resolution: str, auth_header: str) -> list[s
     return coverage_ids(response.text)
 
 
-def session_valid_times(
+def ceil_to_step(value: datetime, step_minutes: int) -> datetime:
+    value = value.astimezone(timezone.utc)
+    seconds = step_minutes * 60
+    timestamp = int(value.timestamp())
+    rounded = ((timestamp + seconds - 1) // seconds) * seconds
+    return datetime.fromtimestamp(rounded, tz=timezone.utc)
+
+
+def next_valid_times(
     run_time: datetime,
-    session_date: datetime,
-    session_start_hour: int,
-    session_end_hour: int,
-    timezone_name: str,
+    horizon_hours: int,
+    step_minutes: int = 15,
 ) -> list[datetime]:
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError as exc:  # pragma: no cover
-        raise SystemExit("Python zoneinfo is required for local session filtering.") from exc
-
-    tz = ZoneInfo(timezone_name)
-    local_day = session_date.astimezone(tz).date()
-    start_local = datetime.combine(local_day, day_time(session_start_hour, 0), tzinfo=tz)
-    end_local = datetime.combine(local_day, day_time(session_end_hour, 0), tzinfo=tz)
-    start_utc = start_local.astimezone(timezone.utc)
-    end_utc = end_local.astimezone(timezone.utc)
-    horizon_end = run_time + timedelta(hours=6)
-
-    first = max(run_time + timedelta(minutes=15), start_utc)
-    first_minutes = math.ceil((first - run_time).total_seconds() / 900) * 15
+    now = datetime.now(timezone.utc)
+    start_utc = max(run_time + timedelta(minutes=step_minutes), ceil_to_step(now, step_minutes))
+    end_utc = now + timedelta(hours=horizon_hours)
+    first_minutes = math.ceil((start_utc - run_time).total_seconds() / (step_minutes * 60)) * step_minutes
     times: list[datetime] = []
     offset = first_minutes
-    while offset <= 360:
+    max_offset = int((end_utc - run_time).total_seconds() // 60)
+    while offset <= max_offset:
       valid_time = run_time + timedelta(minutes=offset)
-      if valid_time > horizon_end or valid_time > end_utc:
+      if valid_time > end_utc:
           break
       if valid_time >= start_utc:
           times.append(valid_time)
-      offset += 15
+      offset += step_minutes
     return times
 
 
@@ -188,12 +185,10 @@ def build_payload(
     raw_dir: Path,
     auth_header: str,
     request_sleep_sec: float,
-    session_start_hour: int,
-    session_end_hour: int,
-    timezone_name: str,
+    horizon_hours: int,
 ) -> dict[str, Any]:
     if not valid_times:
-        raise SystemExit("No AROME-PI valid times available inside requested session window.")
+        raise SystemExit("No AROME-PI valid times available inside requested forecast horizon.")
 
     steps = []
     slug = run_time.strftime("%Y%m%dT%H")
@@ -258,9 +253,8 @@ def build_payload(
         },
         "timeline": {
             "step_minutes": 15,
-            "session_start_local_hour": session_start_hour,
-            "session_end_local_hour": session_end_hour,
-            "timezone": timezone_name,
+            "horizon_hours": horizon_hours,
+            "horizon_policy": "next forecast horizon from generation time",
             "only_available_steps": True,
         },
         "coverages": coverages,
@@ -275,10 +269,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw/aromepi_corsica_latest"))
     parser.add_argument("--output", type=Path, default=Path("visualizations/wind2d/aromepi-corsica-latest.json"))
     parser.add_argument("--bbox", nargs=4, type=float, default=DEFAULT_BBOX, metavar=("MIN_LON", "MIN_LAT", "MAX_LON", "MAX_LAT"))
-    parser.add_argument("--session-date", help="Local session date YYYY-MM-DD. Defaults to today in --timezone.")
+    parser.add_argument("--session-date", help="Deprecated. AROME-PI now publishes the next --horizon-hours.")
     parser.add_argument("--timezone", default=DEFAULT_TIMEZONE)
-    parser.add_argument("--session-start-hour", type=int, default=DEFAULT_SESSION_START_HOUR)
-    parser.add_argument("--session-end-hour", type=int, default=DEFAULT_SESSION_END_HOUR)
+    parser.add_argument("--session-start-hour", type=int, default=DEFAULT_SESSION_START_HOUR, help="Deprecated compatibility option.")
+    parser.add_argument("--session-end-hour", type=int, default=DEFAULT_SESSION_END_HOUR, help="Deprecated compatibility option.")
+    parser.add_argument("--horizon-hours", type=int, default=DEFAULT_HORIZON_HOURS)
     parser.add_argument("--request-sleep-sec", type=float, default=0.0)
     parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=False, help="Delete raw downloaded rasters after the Wind2D JSON has been published.")
     return parser.parse_args()
@@ -290,21 +285,10 @@ def main() -> None:
     mean_ids = load_capabilities("aromepi", "0025", args.auth_header)
     gust_ids = load_capabilities("aromepi", "001", args.auth_header)
     run_time, coverages = latest_common_run(mean_ids, gust_ids)
-    if args.session_date:
-        try:
-            from zoneinfo import ZoneInfo
-            session_date = datetime.fromisoformat(args.session_date).replace(tzinfo=ZoneInfo(args.timezone))
-        except ValueError as exc:
-            raise SystemExit("--session-date must be YYYY-MM-DD") from exc
-    else:
-        session_date = datetime.now(timezone.utc)
 
-    valid_times = session_valid_times(
+    valid_times = next_valid_times(
         run_time,
-        session_date,
-        args.session_start_hour,
-        args.session_end_hour,
-        args.timezone,
+        args.horizon_hours,
     )
     payload = build_payload(
         run_time=run_time,
@@ -314,9 +298,7 @@ def main() -> None:
         raw_dir=args.raw_dir,
         auth_header=args.auth_header,
         request_sleep_sec=args.request_sleep_sec,
-        session_start_hour=args.session_start_hour,
-        session_end_hour=args.session_end_hour,
-        timezone_name=args.timezone,
+        horizon_hours=args.horizon_hours,
     )
     write_layer_atomic(args.output, payload)
     print(

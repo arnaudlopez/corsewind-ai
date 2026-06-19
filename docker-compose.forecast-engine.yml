@@ -43,6 +43,8 @@ services:
       - "60"
       - --aromepi-freshness-target-sec
       - "900"
+      - --aromepi-horizon-hours
+      - "24"
       - --enable-moloch
       - --moloch-poll-interval-sec
       - "1800"

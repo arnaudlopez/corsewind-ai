@@ -17,6 +17,7 @@ from build_moloch_corsica_wind_layer import (
     U_CANDIDATES,
     V_CANDIDATES,
     array_lat_lon,
+    common_lead_hours,
     ensure_source_file,
     finite_stats,
     find_data_array,
@@ -34,7 +35,6 @@ from raw_cache_cleanup import cleanup_message, cleanup_raw_dir
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BBOX = (8.45, 41.25, 9.75, 43.1)
 DEFAULT_DATASET_ID = "ICON_2I_SURFACE_PRESSURE_LEVELS"
-DEFAULT_LEAD_HOURS = (0, 1, 3, 6, 9, 12, 24, 36, 48, 72)
 DEFAULT_GRID_STEP_DEG = 0.02
 DEFAULT_SOURCE_LABEL = "ItaliaMeteo/ARPAE ICON-2I via MeteoHub GRIB2"
 
@@ -96,8 +96,11 @@ def build_payload(input_path: Path, args: argparse.Namespace, bundle: OpenDataBu
 
     run_time = bundle.run_time_utc if bundle else run_time_from_arrays(u_array, v_array)
     bbox = tuple(args.bbox)
+    lead_hours = tuple(args.lead_hours) if args.lead_hours else common_lead_hours(u_array, v_array)
+    if not lead_hours:
+        raise SystemExit(f"Cannot determine available ICON-2I lead hours in {input_path}.")
     steps = []
-    for lead_hour in args.lead_hours:
+    for lead_hour in lead_hours:
         u_selected = select_lead(u_array, lead_hour)
         v_selected = select_lead(v_array, lead_hour)
         lat, lon = array_lat_lon(u_selected)
@@ -154,7 +157,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw/icon2i_corsica_latest"))
     parser.add_argument("--output", type=Path, default=Path("visualizations/wind2d/icon2i-corsica-latest.json"))
     parser.add_argument("--bbox", nargs=4, type=float, default=DEFAULT_BBOX, metavar=("MIN_LON", "MIN_LAT", "MAX_LON", "MAX_LAT"))
-    parser.add_argument("--lead-hours", nargs="+", type=int, default=list(DEFAULT_LEAD_HOURS))
+    parser.add_argument("--lead-hours", nargs="+", type=int, default=None, help="Lead hours to publish. Defaults to every lead hour available in the source bundle.")
     parser.add_argument("--grid-step-deg", type=float, default=DEFAULT_GRID_STEP_DEG)
     parser.add_argument("--download-timeout-sec", type=int, default=600)
     parser.add_argument("--discovery-timeout-sec", type=int, default=30)
