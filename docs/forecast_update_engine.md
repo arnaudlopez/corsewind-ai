@@ -198,6 +198,54 @@ python3 scripts/run_forecast_update_engine.py \
   --windninja-runtime-min 60
 ```
 
+Le daemon ne depend plus seulement d'un intervalle global. Chaque source meteo
+a maintenant son propre etat et sa propre cadence :
+
+```bash
+python3 scripts/run_forecast_update_engine.py \
+  --arome-poll-interval-sec 900 \
+  --aromepi-poll-interval-sec 300 \
+  --aromepi-stale-poll-interval-sec 60 \
+  --aromepi-freshness-target-sec 900 \
+  --fast-window-poll-interval-sec 60 \
+  --enable-moloch \
+  --moloch-poll-interval-sec 1800 \
+  --enable-icon2i \
+  --icon2i-poll-interval-sec 1800
+```
+
+Par defaut, AROME-PI passe donc en polling rapide toutes les 60 secondes
+lorsque le dernier run vu a plus de 15 minutes. Le but est de capter rapidement
+les produits immediats sans relancer WindNinja tant que le forcage AROME
+principal n'a pas change.
+
+Le moteur observe egalement les publications reelles. Chaque source conserve un
+historique `publication_history` avec :
+
+```json
+{
+  "run_time_utc": "...",
+  "first_seen_at_utc": "...",
+  "delay_after_run_sec": 1234,
+  "usable_for_schedule": true
+}
+```
+
+Cet historique sert a estimer la prochaine fenetre rapide. Tant qu'il est
+insuffisant, le moteur utilise des profils par defaut :
+
+- AROME : runs `00, 03, 06, 09, 12, 15, 18, 21 UTC` ;
+- AROME-PI : runs horaires ;
+- MOLOCH : run quotidien `03 UTC`, publication typique plusieurs heures apres ;
+- ICON-2I : runs `00 UTC` et `12 UTC`, publication typique quelques heures apres.
+
+Le status expose `publication_schedule` par source avec :
+
+- `latest_expected_run_time_utc` ;
+- `next_expected_run_time_utc` ;
+- `fast_window_start_utc` / `fast_window_end_utc` ;
+- `publication_status`: `on_time`, `waiting_for_expected_run` ou `delayed`.
+
 Pour forcer une liste d'echeances WindNinja :
 
 ```bash
@@ -263,11 +311,32 @@ CORSEWIND_HOST_ROOT=/absolute/path/to/CorseWind.ai
 
 Cette traduction est necessaire parce que WindNinja est lance dans un second container Docker. Le Docker daemon hote doit voir les cas WindNinja via le chemin hote, pas via `/app`.
 
+Avec Portainer en mode Git stack :
+
+- le stack peut reconstruire l'image depuis le depot a chaque pull ;
+- les variables `METEOFRANCE_API_KEY` et `CORSEWIND_HOST_ROOT` doivent etre definies dans l'environnement du stack Portainer ;
+- `CORSEWIND_HOST_ROOT` doit pointer vers le checkout hote cree par Portainer ;
+- le compose ne depend pas d'un fichier `.env` committe ; en local, Docker Compose lit toujours `.env` automatiquement pour l'interpolation ;
+- les donnees generees restent dans le depot monte, pas dans l'image ;
+- lors d'un redeploiement, Portainer envoie `SIGTERM`, le moteur arrete la commande enfant si necessaire, ecrit un statut `stopping` si l'arret tombe au milieu d'une commande, puis relache le lock ;
+- le nouveau container reprend depuis `data/processed/diagnostics/forecast_update_engine_state.json`.
+
+Le container expose aussi un healthcheck :
+
+```bash
+python scripts/check_forecast_engine_health.py --max-status-age-sec 7200
+```
+
+Un echec ponctuel MOLOCH, ICON-2I ou AROME-PI rend le statut degrade mais ne rend pas forcement le container unhealthy. Le healthcheck echoue surtout si le fichier de statut est absent, illisible, trop ancien, ou si le moteur cumule trop d'echecs consecutifs.
+
 ## Cadre operationnel
 
 Configuration par defaut :
 
-- polling toutes les 15 minutes ;
+- AROME principal : polling toutes les 15 minutes ;
+- AROME-PI : polling toutes les 5 minutes quand frais, puis toutes les 60 secondes si le dernier run vu a plus de 15 minutes ;
+- MOLOCH et ICON-2I : polling toutes les 30 minutes lorsqu'ils sont actives ;
+- backoff par source apres erreur : 5 minutes, puis exponentiel jusqu'a 30 minutes ;
 - lead hours AROME : par defaut seulement les echeances session utiles ;
 - mode exhaustif optionnel : `--arome-lead-hour-policy all-48` ;
 - pause AROME : `1.3 s` apres chaque raster telecharge, pour rester compatible avec le quota API ;
@@ -282,6 +351,9 @@ Le budget de 60 minutes s'applique par echeance WindNinja. La strategie par defa
 ## Limites actuelles
 
 - Le moteur detecte les nouveaux runs via `run_time_utc`, pas via webhook Meteo-France.
+- Les etats de publication sont separes par source dans `models.arome`, `models.aromepi`, `models.moloch` et `models.icon2i`.
+- Une mise a jour AROME-PI, MOLOCH ou ICON-2I rafraichit les couches Wind2D et leurs `.json.gz`, mais ne relance pas WindNinja.
+- WindNinja 50 m est relance uniquement si le run AROME principal differe du dernier run AROME complete par WindNinja, ou si `--force` est passe.
 - Il ne lance pas de validation meteorologique automatique contre des stations terrain.
 - Il produit uniquement la couche WindNinja 50 m / 10 m pour la fenetre windsurf.
 - Les sorties sont pretes pour Beacon Live, mais l'integration directe dans Beacon Live reste une etape separee.

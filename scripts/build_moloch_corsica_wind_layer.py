@@ -23,12 +23,14 @@ from urllib.parse import unquote, urlparse
 import numpy as np
 import requests
 
+from meteohub_opendata_client import OpenDataBundle, latest_opendata_bundle
 from meteo_france_client import load_dotenv
 from raw_cache_cleanup import cleanup_message, cleanup_raw_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BBOX = (8.45, 41.25, 9.75, 43.1)
+DEFAULT_DATASET_ID = "MOLOCH"
 DEFAULT_GRID_STEP_DEG = 0.0113
 DEFAULT_SOURCE_LABEL = "CNR-ISAC MOLOCH-ISAC via MeteoHub GRIB2"
 
@@ -70,14 +72,16 @@ def is_url(value: str) -> bool:
     return value.startswith(("http://", "https://"))
 
 
-def source_from_args(args: argparse.Namespace) -> str:
+def source_from_args(args: argparse.Namespace) -> tuple[str, OpenDataBundle | None]:
     source = args.input or os.getenv("MOLOCH_SOURCE") or os.getenv("MOLOCH_SOURCE_URL")
-    if not source:
-        raise SystemExit(
-            "No MOLOCH source configured. Pass --input, or set MOLOCH_SOURCE_URL to a "
-            "MeteoHub GRIB/NetCDF bundle URL after downloading/selecting the product."
-        )
-    return source
+    if source:
+        return source, None
+    bundle = latest_opendata_bundle(
+        args.dataset,
+        required_vars=("u-component of wind", "v-component of wind"),
+        timeout_sec=args.discovery_timeout_sec,
+    )
+    return bundle.download_url, bundle
 
 
 def filename_from_url(url: str) -> str:
@@ -398,7 +402,7 @@ def round_grid(array: np.ndarray) -> list[list[float | None]]:
     ]
 
 
-def build_payload(input_path: Path, args: argparse.Namespace) -> dict[str, Any]:
+def build_payload(input_path: Path, args: argparse.Namespace, bundle: OpenDataBundle | None = None) -> dict[str, Any]:
     datasets = open_datasets(input_path)
     u_array = find_data_array(datasets, U_CANDIDATES)
     v_array = find_data_array(datasets, V_CANDIDATES)
@@ -407,7 +411,7 @@ def build_payload(input_path: Path, args: argparse.Namespace) -> dict[str, Any]:
         available = sorted({name for dataset in datasets for name in dataset.data_vars})
         raise SystemExit(f"Cannot find 10 m U/V wind variables in {input_path}. Available: {available[:80]}")
 
-    run_time = run_time_from_arrays(u_array, v_array)
+    run_time = bundle.run_time_utc if bundle else run_time_from_arrays(u_array, v_array)
     bbox = tuple(args.bbox)
     lead_hours = tuple(args.lead_hours) if args.lead_hours else common_lead_hours(u_array, v_array, speed_array)
     if not lead_hours:
@@ -450,6 +454,7 @@ def build_payload(input_path: Path, args: argparse.Namespace) -> dict[str, Any]:
         "generated_at_utc": utc_now(),
         "source": args.source_label,
         "product": "MOLOCH-ISAC",
+        "dataset_id": args.dataset,
         "resolution": "0.0113 deg / 1.2 km",
         "model_label": "MOLOCH 1.2 km",
         "height_agl_m": 10,
@@ -462,13 +467,15 @@ def build_payload(input_path: Path, args: argparse.Namespace) -> dict[str, Any]:
             "resampling": "nearest source-grid point to regular WGS84 Corsica grid",
         },
         "source_file": str(input_path),
+        "source_bundle": bundle.to_dict() if bundle else None,
         "forecast_steps": steps,
     }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", help="Local GRIB/NetCDF/CorseWind JSON file, or direct URL. Defaults to MOLOCH_SOURCE_URL.")
+    parser.add_argument("--input", help="Local GRIB/NetCDF/CorseWind JSON file, or direct URL. Defaults to latest MeteoHub MOLOCH bundle.")
+    parser.add_argument("--dataset", default=DEFAULT_DATASET_ID)
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--raw-dir", type=Path, default=Path("data/raw/moloch_corsica_latest"))
     parser.add_argument("--output", type=Path, default=Path("visualizations/wind2d/moloch-corsica-latest.json"))
@@ -476,6 +483,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lead-hours", nargs="+", type=int, default=None, help="Lead hours to publish. Defaults to every lead hour available in the source bundle.")
     parser.add_argument("--grid-step-deg", type=float, default=DEFAULT_GRID_STEP_DEG)
     parser.add_argument("--download-timeout-sec", type=int, default=180)
+    parser.add_argument("--discovery-timeout-sec", type=int, default=30)
     parser.add_argument("--source-label", default=DEFAULT_SOURCE_LABEL)
     parser.add_argument("--copy-source-to-raw", action="store_true", help="Copy a local source into raw-dir for reproducibility.")
     parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=False, help="Delete raw downloaded/copied source files after the Wind2D JSON has been published.")
@@ -487,7 +495,7 @@ def main() -> None:
     load_dotenv(args.env_file)
     args.raw_dir = resolve_path(args.raw_dir)
     args.output = resolve_path(args.output)
-    source = source_from_args(args)
+    source, bundle = source_from_args(args)
     input_path = ensure_source_file(source, args.raw_dir, args.download_timeout_sec)
     if args.copy_source_to_raw and not is_url(source):
         args.raw_dir.mkdir(parents=True, exist_ok=True)
@@ -496,7 +504,7 @@ def main() -> None:
             shutil.copy2(input_path, copied)
             input_path = copied
     if not optional_copy_json(input_path, args.output):
-        payload = build_payload(input_path, args)
+        payload = build_payload(input_path, args, bundle)
         write_layer_atomic(args.output, payload)
         print(
             f"wrote {args.output} run={payload['run_time_utc']} "

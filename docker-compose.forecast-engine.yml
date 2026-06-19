@@ -5,22 +5,55 @@ services:
       dockerfile: Dockerfile.forecast-engine
     image: corsewind/forecast-engine:local
     container_name: corsewind-forecast-engine
+    init: true
     restart: unless-stopped
-    env_file:
-      - .env
+    stop_signal: SIGTERM
+    stop_grace_period: 10m
     environment:
       PYTHONUNBUFFERED: "1"
+      METEOFRANCE_API_KEY: ${METEOFRANCE_API_KEY:?Set METEOFRANCE_API_KEY in Portainer stack environment}
+      MOLOCH_SOURCE_URL: ${MOLOCH_SOURCE_URL:-}
+      ICON2I_SOURCE_URL: ${ICON2I_SOURCE_URL:-}
       CORSEWIND_CONTAINER_ROOT: /app
       CORSEWIND_HOST_ROOT: ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}
     working_dir: /app
     volumes:
       - ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}:/app
       - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "python", "scripts/check_forecast_engine_health.py", "--max-status-age-sec", "7200"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
     command:
       - python
       - scripts/run_forecast_update_engine.py
       - --poll-interval-sec
       - "900"
+      - --fast-window-poll-interval-sec
+      - "60"
+      - --arome-poll-interval-sec
+      - "900"
+      - --enable-aromepi
+      - --aromepi-poll-interval-sec
+      - "300"
+      - --aromepi-stale-poll-interval-sec
+      - "60"
+      - --aromepi-freshness-target-sec
+      - "900"
+      - --enable-moloch
+      - --moloch-poll-interval-sec
+      - "1800"
+      - --enable-icon2i
+      - --icon2i-poll-interval-sec
+      - "1800"
+      - --source-error-backoff-sec
+      - "300"
+      - --source-error-backoff-max-sec
+      - "1800"
+      - --lock-stale-after-sec
+      - "3600"
       - --windninja-parallel
       - "6"
       - --windninja-runtime-min

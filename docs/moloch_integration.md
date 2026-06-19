@@ -27,6 +27,12 @@ Install the optional decoder stack:
 pip install -r requirements-moloch.txt
 ```
 
+Auto-discover and build from the latest public MeteoHub bundle:
+
+```bash
+python3 scripts/build_moloch_corsica_wind_layer.py
+```
+
 Build from a local GRIB/NetCDF file:
 
 ```bash
@@ -34,7 +40,8 @@ python3 scripts/build_moloch_corsica_wind_layer.py \
   --input data/raw/moloch/moloch_bundle.grib2
 ```
 
-By default, the builder publishes every forecast lead hour available in the
+By default, the builder selects the newest public `MOLOCH` bundle containing
+10 m U/V wind variables and publishes every forecast lead hour available in the
 source bundle. Pass `--lead-hours` only when you intentionally want a smaller
 subset.
 
@@ -78,9 +85,9 @@ then run:
 python3 scripts/run_forecast_update_engine.py --once --enable-moloch
 ```
 
-If no MOLOCH source is configured, the engine records
-`moloch_status=skipped_missing_source` and keeps the existing AROME/WindNinja
-flow running.
+If no MOLOCH source is configured, the engine now auto-discovers the latest
+public `MOLOCH` bundle through MeteoHub. `MOLOCH_SOURCE_URL` remains useful as
+a debug or replay override.
 
 ## Viewer
 

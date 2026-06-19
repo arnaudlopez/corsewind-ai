@@ -95,10 +95,28 @@ Daemon mode:
 
 ```bash
 python3 scripts/run_forecast_update_engine.py \
-  --poll-interval-sec 900 \
+  --arome-poll-interval-sec 900 \
+  --aromepi-poll-interval-sec 300 \
+  --aromepi-stale-poll-interval-sec 60 \
+  --aromepi-freshness-target-sec 900 \
+  --fast-window-poll-interval-sec 60 \
+  --enable-moloch \
+  --moloch-poll-interval-sec 1800 \
+  --enable-icon2i \
+  --icon2i-poll-interval-sec 1800 \
   --windninja-parallel 6 \
   --windninja-runtime-min 60
 ```
+
+The daemon tracks source state independently under `models.arome`,
+`models.aromepi`, `models.moloch`, and `models.icon2i`. Wind2D JSON layers are
+refreshed per source when due; WindNinja 50 m is rebuilt only when the main
+AROME forcing run changes, or when `--force` is explicitly passed.
+Each source also records `publication_history` so the scheduler can learn
+real publication delays and switch to 60-second polling inside expected fast
+publication windows.
+MOLOCH and ICON-2I use MeteoHub bundle discovery when no explicit source URL is
+provided, so their availability can be observed automatically.
 
 ## Docker
 
@@ -107,6 +125,25 @@ docker compose -f docker-compose.forecast-engine.yml up --build
 ```
 
 The compose file mounts the repository and `/var/run/docker.sock` so the engine container can launch WindNinja containers on the host Docker daemon.
+
+For Portainer Git stacks, set these environment variables in the stack:
+
+```bash
+METEOFRANCE_API_KEY=...
+CORSEWIND_HOST_ROOT=/host/path/to/Portainer/checkout/CorseWind.ai
+```
+
+`CORSEWIND_HOST_ROOT` must be the host-side checkout path used by Portainer. It cannot be `/app`, because child WindNinja containers are launched by the host Docker daemon and need host paths for bind mounts.
+
+The compose file does not require a committed `.env` file. Locally, Docker Compose still reads `.env` automatically for variable interpolation. In Portainer, define the same variables in the stack environment.
+
+Generated data and diagnostics are stored in the mounted repository tree, especially `data/processed/`, `visualizations/wind2d/`, `reports/`, and `tmp/`. On pull/redeploy, the old container receives `SIGTERM`, the engine releases its lock, and the new container resumes from `data/processed/diagnostics/forecast_update_engine_state.json`.
+
+The container exposes a healthcheck through:
+
+```bash
+python scripts/check_forecast_engine_health.py --max-status-age-sec 7200
+```
 
 ## Wind2D Viewer
 

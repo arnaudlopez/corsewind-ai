@@ -556,8 +556,8 @@ class AromeWindOverlay extends L.Layer {
       speedKnots: speed * KNOTS_PER_MPS,
       meanSpeed,
       meanSpeedKnots: meanSpeed === null ? null : meanSpeed * KNOTS_PER_MPS,
-      gustSpeed: gustSpeed ?? speed,
-      gustSpeedKnots: (gustSpeed ?? speed) * KNOTS_PER_MPS,
+      gustSpeed,
+      gustSpeedKnots: gustSpeed === null ? null : gustSpeed * KNOTS_PER_MPS,
       particleSpeed,
       particleSpeedKnots: particleSpeed * KNOTS_PER_MPS,
       baseSpeed: speed,
@@ -2841,9 +2841,10 @@ function updateReadout(payload, overlay) {
   const renderMaxKnots = step.stats_ms.max * KNOTS_PER_MPS;
   const gustMeanKnots = step.gust_stats_ms ? step.gust_stats_ms.mean * KNOTS_PER_MPS : null;
   const gustMaxKnots = step.gust_stats_ms ? step.gust_stats_ms.max * KNOTS_PER_MPS : null;
+  const gustLabel = model.gust_window_label || (model.product === "aromepi" ? "rafales 15 min" : "rafales modele");
   document.querySelector("#spot-speed").textContent = `${renderMeanKnots.toFixed(0)} kt`;
   document.querySelector("#spot-detail").textContent = step.gust_stats_ms
-    ? `Vent moyen Corse ${renderMeanKnots.toFixed(0)} kt · rafales 15 min moy. ${gustMeanKnots.toFixed(0)} kt · max rafale ${gustMaxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`
+    ? `Vent moyen Corse ${renderMeanKnots.toFixed(0)} kt · ${gustLabel} moy. ${gustMeanKnots.toFixed(0)} kt · max ${gustMaxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`
     : `Moyenne Corse ${model.model_label} · max ${renderMaxKnots.toFixed(0)} kt · ${formatHour(step.valid_time_utc)}`;
   updateLegendTitle(overlay.displayMode);
   refreshCoverageStatus(overlay);
