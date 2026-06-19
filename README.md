@@ -121,3 +121,5 @@ See `docs/fasteddy_benchmark.md` for the optional FastEddy GPU LES smoke benchma
 See `docs/fasteddy_arome_coupling_poc.md` for the AROME 3D inventory and parent-data POC required before FastEddy can be evaluated as a serious forecast engine.
 
 See `docs/fasteddy_prod_like_pipeline.md` for the prod-like FastEddy real-case package generator, GeoSpec/SimGrid/ICBC handoff, and remaining production gates.
+
+See `docs/fasteddy_icbc_contract.md`, `docs/fasteddy_wind2d_output_contract.md`, and `docs/fasteddy_linux_gpu_runbook.md` for the adapter contract, output contract, and GPU-machine run procedure.

@@ -128,6 +128,22 @@ data/processed/benchmarks/fasteddy/prod_like_run_status.json
 - Convert FastEddy outputs into the Wind2D raster/data-tile contract.
 - Add this pipeline to the autonomous forecast engine after solver runtime is validated.
 
+## Additional Contracts
+
+```text
+docs/fasteddy_icbc_contract.md
+docs/fasteddy_wind2d_output_contract.md
+docs/fasteddy_linux_gpu_runbook.md
+benchmarks/fasteddy/icbc_contract.json
+benchmarks/fasteddy/wind2d_output_contract.json
+```
+
+Validate the package without FastEddy installed:
+
+```bash
+.venv/bin/python scripts/validate_fasteddy_prod_like_package.py
+```
+
 ## Why This Is Prod-Like But Not Yet Prod
 
 The data package is prod-like because it uses real forecast and real static surface sources and produces the right classes of inputs for the official FastEddy real-case workflow.

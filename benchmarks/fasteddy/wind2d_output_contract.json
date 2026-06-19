@@ -1,0 +1,38 @@
+{
+  "format": "corsewind.fasteddy.wind2d_output_contract.v1",
+  "purpose": "Contract for converting FastEddy outputs into Wind2D/Beacon Live forecast layers.",
+  "required_product": {
+    "manifest": "visualizations/wind2d/fasteddy-tiles/<step>/manifest.json",
+    "data_tiles": "visualizations/wind2d/fasteddy-data/<step>/{z}/{x}/{y}.png or equivalent raw-tile encoding",
+    "color_tiles": "visualizations/wind2d/fasteddy-tiles/<step>/{z}/{x}/{y}.png",
+    "diagnostics": "data/processed/diagnostics/fasteddy_<zone>_<step>.json"
+  },
+  "required_fields_at_display_height": {
+    "speed_ms": {"units": "m s-1", "source": "sqrt(u^2 + v^2)"},
+    "direction_from_deg": {"units": "degrees", "source": "meteorological direction from u/v"},
+    "u_ms": {"units": "m s-1", "source": "FastEddy u interpolated to display height"},
+    "v_ms": {"units": "m s-1", "source": "FastEddy v interpolated to display height"},
+    "w_ms": {"units": "m s-1", "source": "FastEddy w interpolated to display height"},
+    "vertical_motion_class": {"units": "category", "source": "derived from w_ms thresholds"},
+    "confidence": {"units": "0..1", "source": "data completeness + solver status + interpolation validity"}
+  },
+  "required_metadata": {
+    "source_model": "FastEddy",
+    "source_arome_run_time_utc": "ISO-8601",
+    "valid_time_utc": "ISO-8601",
+    "zone_id": "string",
+    "display_height_m": "number",
+    "grid_resolution_m": "number",
+    "bbox_wgs84": "minLon,minLat,maxLon,maxLat",
+    "z0m_lookup_version": "benchmarks/fasteddy/worldcover_z0m_corse_v1.csv",
+    "icbc_manifest": "adapter output manifest path",
+    "solver_status": "pass|fail|partial"
+  },
+  "quality_gates": [
+    "No tile may be published if solver_status is fail.",
+    "No tile may be published if display-height u/v interpolation has non-finite values over more than 1% of land/nearshore cells.",
+    "Direction must use the same meteorological convention as Wind2D and WindNinja layers.",
+    "The manifest must expose the exact AROME run and valid time.",
+    "Data tiles must preserve values for live recolorization; color tiles are visualization products only."
+  ]
+}
