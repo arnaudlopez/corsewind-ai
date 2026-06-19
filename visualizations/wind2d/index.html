@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CorseWind AROME Wind Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./wind2d.css?v=20260618-point-speed-direction" />
+    <link rel="stylesheet" href="./wind2d.css?v=20260619-arome-speed-only" />
   </head>
   <body>
     <main class="app-shell">
@@ -17,7 +17,7 @@
         <button class="map-layer-button active" data-layer="arome" type="button" aria-pressed="true" title="AROME">
           A
         </button>
-        <button class="map-layer-button active" data-layer="windninja50" type="button" aria-pressed="true" title="WindNinja 50 m / 10 m">
+        <button class="map-layer-button" data-layer="windninja50" type="button" aria-pressed="false" title="WindNinja 50 m / 10 m">
           50
         </button>
       </nav>
@@ -30,7 +30,7 @@
         <div class="status-grid">
           <div>
             <span class="metric-label">Couches</span>
-            <strong id="layer-height">AROME + WN 50 m</strong>
+            <strong id="layer-height">AROME</strong>
           </div>
           <div>
             <span class="metric-label">Modèle</span>
@@ -59,8 +59,8 @@
         <div class="gradient-bar"></div>
         <div class="legend-row">
           <span id="scale-min">0 kt</span>
-          <span id="scale-mid">6 kt</span>
-          <span id="scale-max-label">12 kt</span>
+          <span id="scale-mid">7 kt</span>
+          <span id="scale-max-label">14 kt</span>
         </div>
         <div class="legend-expanded" id="legend-expanded">
           <div class="session-legend" id="session-legend" hidden aria-label="Verdicts session"></div>
@@ -68,18 +68,18 @@
           <div class="scale-control">
             <label for="wind-scale">
               <span>Échelle max</span>
-              <strong id="scale-max-value">12 kt</strong>
+              <strong id="scale-max-value">14 kt</strong>
             </label>
-            <input id="wind-scale" type="range" min="6" max="80" step="1" value="12" />
+            <input id="wind-scale" type="range" min="6" max="80" step="1" value="14" />
           </div>
           <div class="layer-toggles" aria-label="Couches visibles">
-            <button class="layer-toggle active" data-layer="arome" type="button">AROME</button>
-            <button class="layer-toggle active" data-layer="windninja50" type="button" title="WindNinja 50 m / 10 m">WN 50/10 m</button>
+            <button class="layer-toggle active" data-layer="arome" type="button" aria-pressed="true">AROME</button>
+            <button class="layer-toggle" data-layer="windninja50" type="button" aria-pressed="false" title="WindNinja 50 m / 10 m">WN 50/10 m</button>
           </div>
           <div class="mode-tabs" aria-label="Rendu vent">
-            <button class="mode-tab active" data-mode="speed" type="button">Vitesse</button>
-            <button class="mode-tab" data-mode="devente" type="button">Dévente</button>
-            <button class="mode-tab" data-mode="acceleration" type="button">Accél.</button>
+            <button class="mode-tab active disabled" data-mode="speed" type="button" disabled aria-disabled="true">Vitesse</button>
+            <button class="mode-tab disabled" data-mode="devente" type="button" disabled aria-disabled="true">Dévente</button>
+            <button class="mode-tab disabled" data-mode="acceleration" type="button" disabled aria-disabled="true">Accél.</button>
           </div>
           <button class="particle-toggle active" id="particle-toggle" type="button" aria-pressed="true" title="Afficher le sens du flux d'air">
             Flux
@@ -133,6 +133,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script type="module" src="./wind2d.js?v=20260618-point-speed-direction"></script>
+    <script type="module" src="./wind2d.js?v=20260619-arome-speed-only"></script>
   </body>
 </html>

@@ -26,7 +26,7 @@ const VIEW_BOUNDS = [
 ];
 const INITIAL_ZOOM = 8;
 const KNOTS_PER_MPS = 1.943844492;
-const DEFAULT_SCALE_MAX_KT = 12;
+const DEFAULT_SCALE_MAX_KT = 14;
 const CFD_INFLUENCE_RADIUS_M = 260;
 const CFD_SIGMA_M = 105;
 const SESSION_CLASSES = {
@@ -74,7 +74,7 @@ class AromeWindOverlay extends L.Layer {
     this.windNinjaCorsicaTiles = buildRasterTileState(windNinjaCorsicaTilePayload);
     this.windNinjaCorsica1mTiles = buildRasterTileState(windNinjaCorsica1mTilePayload);
     this.windNinjaCorsica50mTiles = buildRasterTileState(windNinjaCorsica50mTilePayload);
-    this.visibleLayers = { arome: true, windninja50: true };
+    this.visibleLayers = { arome: true, windninja50: false };
     this.displayMode = "speed";
     this.stepIndex = 0;
     this.scaleMaxKnots = DEFAULT_SCALE_MAX_KT;
@@ -105,6 +105,7 @@ class AromeWindOverlay extends L.Layer {
 
   setStep(index) {
     this.stepIndex = index;
+    applyPreferredForecastLayer(this);
     this.heatDirty = true;
     this.windNinjaDataTileCache.clear();
     this.resetParticles();
@@ -120,11 +121,14 @@ class AromeWindOverlay extends L.Layer {
   }
 
   setDisplayMode(mode) {
-    this.displayMode = ["speed", "devente", "acceleration"].includes(mode) ? mode : "speed";
+    const nextMode = ["speed", "devente", "acceleration"].includes(mode) ? mode : "speed";
+    this.displayMode = windNinjaModesAvailable(this) ? nextMode : "speed";
     this.heatDirty = true;
     this.syncCanvasVisibility();
     this.syncParticleVisibility();
     this.refreshTileLayers();
+    syncModeControls(this);
+    updateLegendTitle(this.displayMode);
     this.draw();
   }
 
@@ -140,6 +144,7 @@ class AromeWindOverlay extends L.Layer {
     this.draw();
     refreshActiveLayerLabel(this);
     refreshCoverageStatus(this);
+    syncModeControls(this);
   }
 
   setParticlesEnabled(enabled) {
@@ -2097,10 +2102,39 @@ function formatForecastDay(iso) {
   });
 }
 
+function formatRunStamp(iso) {
+  return new Date(iso).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Paris",
+  });
+}
+
 function hasWindNinja50Step(overlay, leadHour) {
   return Boolean(
     overlay.windNinjaCorsica50mTiles?.steps?.some((step) => Number(step.lead_hour) === Number(leadHour))
   );
+}
+
+function windNinjaModesAvailable(overlay) {
+  return Boolean(overlay.visibleLayers.windninja50 && hasWindNinja50Step(overlay, overlay.step?.lead_hour));
+}
+
+function applyPreferredForecastLayer(overlay) {
+  const windNinjaAvailable = hasWindNinja50Step(overlay, overlay.step?.lead_hour);
+  overlay.visibleLayers.windninja50 = windNinjaAvailable;
+  overlay.visibleLayers.arome = !windNinjaAvailable;
+  if (!windNinjaAvailable) overlay.displayMode = "speed";
+  overlay.heatDirty = true;
+  overlay.windNinjaDataTileCache?.clear();
+  overlay.syncCanvasVisibility?.();
+  overlay.syncParticleVisibility?.();
+  syncLayerControls(overlay);
+  syncModeControls(overlay);
+  refreshActiveLayerLabel(overlay);
+  refreshCoverageStatus(overlay);
 }
 
 function windNinjaManifestSignature(tileState) {
@@ -2120,6 +2154,7 @@ async function refreshWindNinja50mManifest(payload, overlay) {
   removeWindNinjaCorsicaTileLayer(overlay, overlay.windNinjaCorsica50mTiles);
   overlay.windNinjaCorsica50mTiles = nextState;
   overlay.windNinjaDataTileCache.clear();
+  applyPreferredForecastLayer(overlay);
   overlay.refreshTileLayers();
   buildForecastButtons(payload, overlay);
   refreshActiveLayerLabel(overlay);
@@ -2296,42 +2331,56 @@ function buildSurfaceLegend() {
   }
 }
 
+function syncModeControls(overlay) {
+  const tabs = [...document.querySelectorAll(".mode-tab")];
+  const windNinjaAvailable = windNinjaModesAvailable(overlay);
+  if (!windNinjaAvailable && overlay.displayMode !== "speed") overlay.displayMode = "speed";
+  tabs.forEach((tab) => {
+    const mode = tab.dataset.mode || "speed";
+    const disabled = !windNinjaAvailable;
+    tab.disabled = disabled;
+    tab.classList.toggle("disabled", disabled);
+    tab.classList.toggle("active", mode === overlay.displayMode);
+    tab.setAttribute("aria-disabled", String(disabled));
+    tab.title = disabled
+      ? "AROME s'affiche uniquement en vitesse. Dévente et accélération sont disponibles avec WindNinja."
+      : "Mode WindNinja";
+  });
+}
+
 function bindModeControl(overlay) {
   const tabs = [...document.querySelectorAll(".mode-tab")];
+  syncModeControls(overlay);
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
+      if (tab.disabled) return;
       const mode = tab.dataset.mode || "speed";
       overlay.setDisplayMode(mode);
-      tabs.forEach((candidate) => candidate.classList.toggle("active", candidate === tab));
-      updateLegendTitle(mode);
     });
   });
 }
 
-function bindLayerControl(overlay) {
+function syncLayerControls(overlay) {
   const buttons = [...document.querySelectorAll(".layer-toggle, .map-layer-button")];
-  const setButtonState = (layer, visible) => {
-    buttons
-      .filter((candidate) => candidate.dataset.layer === layer)
-      .forEach((candidate) => {
-        candidate.classList.toggle("active", visible);
-        candidate.setAttribute("aria-pressed", String(visible));
-      });
-  };
-
   for (const button of buttons) {
     const layer = button.dataset.layer;
     if (layer && Object.prototype.hasOwnProperty.call(overlay.visibleLayers, layer)) {
-      setButtonState(layer, Boolean(overlay.visibleLayers[layer]));
+      const visible = Boolean(overlay.visibleLayers[layer]);
+      button.classList.toggle("active", visible);
+      button.setAttribute("aria-pressed", String(visible));
     }
   }
+}
 
+function bindLayerControl(overlay) {
+  const buttons = [...document.querySelectorAll(".layer-toggle, .map-layer-button")];
+  syncLayerControls(overlay);
   buttons.forEach((button) => {
     button.addEventListener("click", () => {
       const layer = button.dataset.layer;
       const nextVisible = !button.classList.contains("active");
-      setButtonState(layer, nextVisible);
       overlay.setLayerVisible(layer, nextVisible);
+      syncLayerControls(overlay);
     });
   });
 }
@@ -2625,8 +2674,18 @@ function buildForecastButtons(payload, overlay) {
     meta.textContent = `H+${step.lead_hour}`;
     const day = document.createElement("em");
     day.textContent = formatForecastDay(step.valid_time_utc);
-    button.append(time, meta, day);
-    button.title = `${formatHour(step.valid_time_utc)} · ${hasWindNinja ? "WindNinja 50 m disponible" : "AROME seul pour l'instant"}`;
+    const run = document.createElement("small");
+    run.textContent = `Run ${formatRunStamp(payload.run_time_utc)}`;
+    button.append(time, meta, day, run);
+    button.title =
+      `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)} · ` +
+      `run AROME ${formatRunStamp(payload.run_time_utc)} · ` +
+      `${hasWindNinja ? "WindNinja 50 m disponible" : "AROME seul pour l'instant"}`;
+    button.setAttribute(
+      "aria-label",
+      `Prévision ${formatForecastDay(step.valid_time_utc)} ${formatClock(step.valid_time_utc)}, ` +
+        `calculée par le run AROME du ${formatRunStamp(payload.run_time_utc)}`
+    );
     button.addEventListener("click", () => {
       overlay.setStep(index);
       for (const child of strip.children) child.classList.remove("active");
@@ -2918,6 +2977,7 @@ async function main() {
     (await fetchOptionalJson(WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL));
   const overlay = new AromeWindOverlay(payload, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, windNinjaCorsica50mTilePayload);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
+  applyPreferredForecastLayer(overlay);
   window.CORSEWIND_AROME_OVERLAY = overlay;
   window.CORSEWIND_AROME_PAYLOAD = payload;
   overlay.addTo(map);

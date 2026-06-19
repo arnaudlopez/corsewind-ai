@@ -421,6 +421,23 @@ body {
   opacity: 0.72;
 }
 
+.mode-tabs:has(.mode-tab:disabled) {
+  opacity: 0.58;
+}
+
+.mode-tab:disabled,
+.mode-tab.disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+
+.mode-tab:disabled.active,
+.mode-tab.disabled.active {
+  color: rgba(226, 232, 240, 0.72);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
 .effect-grid {
   margin-top: 11px;
   justify-content: flex-start;
@@ -634,8 +651,8 @@ body {
 
 .forecast-step {
   display: grid;
-  flex: 0 0 66px;
-  height: 48px;
+  flex: 0 0 88px;
+  height: 62px;
   place-items: center;
   gap: 1px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -655,9 +672,10 @@ body {
 }
 
 .forecast-step span,
-.forecast-step em {
+.forecast-step em,
+.forecast-step small {
   display: block;
-  max-width: 58px;
+  max-width: 78px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -668,6 +686,12 @@ body {
   color: rgba(226, 232, 240, 0.52);
   font-style: normal;
   font-size: 0.55rem;
+}
+
+.forecast-step small {
+  color: rgba(226, 232, 240, 0.6);
+  font-size: 0.51rem;
+  font-weight: 760;
 }
 
 .forecast-step.past {
@@ -686,7 +710,8 @@ body {
 }
 
 .forecast-step.active strong,
-.forecast-step.active em {
+.forecast-step.active em,
+.forecast-step.active small {
   color: #06111f;
 }
 
@@ -991,8 +1016,8 @@ body {
   }
 
   .forecast-step {
-    flex-basis: 62px;
-    height: 43px;
+    flex-basis: 82px;
+    height: 58px;
     font-size: 0.56rem;
   }
 
