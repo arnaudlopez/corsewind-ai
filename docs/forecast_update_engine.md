@@ -297,13 +297,15 @@ Wind2D relit aussi automatiquement le manifest WindNinja 50 m toutes les 45 seco
 
 ## Lancer en container Docker
 
-Le container de polling utilise le Docker daemon hote pour lancer l'image WindNinja/Katana. Il faut donc monter `/var/run/docker.sock` et fournir le chemin hote du depot.
+Le compose principal est configure pour le mode Portainer sans WindNinja : le
+moteur tourne depuis l'image Docker, conserve les donnees dans des volumes
+Docker nommes, et ne necessite pas `CORSEWIND_HOST_ROOT`.
 
 Variables attendues dans `.env` :
 
 ```bash
 METEOFRANCE_API_KEY=...
-CORSEWIND_HOST_ROOT=/absolute/path/to/CorseWind.ai
+WINDNINJA_ENABLED=false
 ```
 
 Commande :
@@ -312,26 +314,24 @@ Commande :
 docker compose -f docker-compose.forecast-engine.yml up --build
 ```
 
-Le compose monte le depot dans `/app` et passe :
-
-```text
-CORSEWIND_CONTAINER_ROOT=/app
-CORSEWIND_HOST_ROOT=/absolute/path/to/CorseWind.ai
-```
-
-Cette traduction est necessaire parce que WindNinja est lance dans un second container Docker. Le Docker daemon hote doit voir les cas WindNinja via le chemin hote, pas via `/app`.
+Les sorties runtime sont conservees dans les volumes Docker nommes
+`corsewind-data-raw`, `corsewind-data-processed`, `corsewind-reports`,
+`corsewind-tmp` et `corsewind-wind2d`.
 
 Avec Portainer en mode Git stack :
 
 - le stack peut reconstruire l'image depuis le depot a chaque pull ;
-- les variables `METEOFRANCE_API_KEY` et `CORSEWIND_HOST_ROOT` doivent etre definies dans l'environnement du stack Portainer ;
-- `CORSEWIND_HOST_ROOT` doit pointer vers le checkout hote cree par Portainer ;
+- seule la variable `METEOFRANCE_API_KEY` est obligatoire pour le mode sans WindNinja ;
 - `WINDNINJA_ENABLED=false` desactive l'execution WindNinja et la generation des tuiles/data WindNinja, tout en conservant la mise a jour des couches modele ;
 - le serveur web Wind2D est optionnel : definir `COMPOSE_PROFILES=wind2d-web` pour l'activer, et `WIND2D_WEB_PORT=8769` pour choisir le port hote ;
 - le compose ne depend pas d'un fichier `.env` committe ; en local, Docker Compose lit toujours `.env` automatiquement pour l'interpolation ;
-- les donnees generees restent dans le depot monte, pas dans l'image ;
+- les donnees generees restent dans des volumes Docker nommes, pas dans l'image ;
 - lors d'un redeploiement, Portainer envoie `SIGTERM`, le moteur arrete la commande enfant si necessaire, ecrit un statut `stopping` si l'arret tombe au milieu d'une commande, puis relache le lock ;
 - le nouveau container reprend depuis `data/processed/diagnostics/forecast_update_engine_state.json`.
+
+Pour reactiver WindNinja plus tard, il faudra utiliser un deploiement avec
+`/var/run/docker.sock` et un chemin hote visible par le Docker daemon. Le mode
+Portainer-safe actuel evite volontairement ces montages.
 
 Le service web optionnel sert le viewer avec gzip via :
 

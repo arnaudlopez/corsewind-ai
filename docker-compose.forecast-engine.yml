@@ -14,13 +14,15 @@ services:
       METEOFRANCE_API_KEY: ${METEOFRANCE_API_KEY:?Set METEOFRANCE_API_KEY in Portainer stack environment}
       MOLOCH_SOURCE_URL: ${MOLOCH_SOURCE_URL:-}
       ICON2I_SOURCE_URL: ${ICON2I_SOURCE_URL:-}
-      WINDNINJA_ENABLED: ${WINDNINJA_ENABLED:-true}
+      WINDNINJA_ENABLED: ${WINDNINJA_ENABLED:-false}
       CORSEWIND_CONTAINER_ROOT: /app
-      CORSEWIND_HOST_ROOT: ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}
     working_dir: /app
     volumes:
-      - ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}:/app
-      - /var/run/docker.sock:/var/run/docker.sock
+      - corsewind-data-raw:/app/data/raw
+      - corsewind-data-processed:/app/data/processed
+      - corsewind-reports:/app/reports
+      - corsewind-tmp:/app/tmp
+      - corsewind-wind2d:/app/visualizations/wind2d
     healthcheck:
       test: ["CMD", "python", "scripts/check_forecast_engine_health.py", "--max-status-age-sec", "7200"]
       interval: 60s
@@ -28,41 +30,29 @@ services:
       retries: 3
       start_period: 120s
     command:
-      - python
-      - scripts/run_forecast_update_engine.py
-      - --poll-interval-sec
-      - "900"
-      - --fast-window-poll-interval-sec
-      - "60"
-      - --arome-poll-interval-sec
-      - "900"
-      - --enable-aromepi
-      - --aromepi-poll-interval-sec
-      - "300"
-      - --aromepi-stale-poll-interval-sec
-      - "60"
-      - --aromepi-freshness-target-sec
-      - "900"
-      - --aromepi-horizon-hours
-      - "24"
-      - --aromepi-request-sleep-sec
-      - "1.3"
-      - --enable-moloch
-      - --moloch-poll-interval-sec
-      - "1800"
-      - --enable-icon2i
-      - --icon2i-poll-interval-sec
-      - "1800"
-      - --source-error-backoff-sec
-      - "300"
-      - --source-error-backoff-max-sec
-      - "1800"
-      - --lock-stale-after-sec
-      - "3600"
-      - --windninja-parallel
-      - "6"
-      - --windninja-runtime-min
-      - "60"
+      - sh
+      - -c
+      - >-
+        python scripts/sync_wind2d_static.py &&
+        exec python scripts/run_forecast_update_engine.py
+        --poll-interval-sec 900
+        --fast-window-poll-interval-sec 60
+        --arome-poll-interval-sec 900
+        --enable-aromepi
+        --aromepi-poll-interval-sec 300
+        --aromepi-stale-poll-interval-sec 60
+        --aromepi-freshness-target-sec 900
+        --aromepi-horizon-hours 24
+        --aromepi-request-sleep-sec 1.3
+        --enable-moloch
+        --moloch-poll-interval-sec 1800
+        --enable-icon2i
+        --icon2i-poll-interval-sec 1800
+        --source-error-backoff-sec 300
+        --source-error-backoff-max-sec 1800
+        --lock-stale-after-sec 3600
+        --windninja-parallel 6
+        --windninja-runtime-min 60
 
   wind2d-web:
     build:
@@ -78,7 +68,7 @@ services:
       PYTHONUNBUFFERED: "1"
     working_dir: /app
     volumes:
-      - ${CORSEWIND_HOST_ROOT:?Set CORSEWIND_HOST_ROOT in .env to the absolute host path of this repository}:/app:ro
+      - corsewind-wind2d:/app/visualizations/wind2d
     ports:
       - "${WIND2D_WEB_PORT:-8769}:8769"
     healthcheck:
@@ -88,9 +78,15 @@ services:
       retries: 3
       start_period: 30s
     command:
-      - python
-      - scripts/serve_wind2d_compressed.py
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8769"
+      - sh
+      - -c
+      - >-
+        python scripts/sync_wind2d_static.py &&
+        exec python scripts/serve_wind2d_compressed.py --host 0.0.0.0 --port 8769
+
+volumes:
+  corsewind-data-raw:
+  corsewind-data-processed:
+  corsewind-reports:
+  corsewind-tmp:
+  corsewind-wind2d:
