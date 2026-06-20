@@ -76,6 +76,12 @@ SOURCE_LAYER_PATHS = {
 SHUTDOWN_REQUESTED = False
 ACTIVE_PROCESS: subprocess.Popen[str] | None = None
 
+
+class CommandFailed(RuntimeError):
+    def __init__(self, message: str, result: dict[str, Any]):
+        super().__init__(message)
+        self.result = result
+
 WINDNINJA_50M_ARTIFACTS = {
     "arome_layer": "visualizations/wind2d/arome-corsica-latest.json",
     "arome_layer_gzip": "visualizations/wind2d/arome-corsica-latest.json.gz",
@@ -492,7 +498,7 @@ def run_command(args: tuple[str, ...], dry_run: bool) -> dict[str, Any]:
     if proc.returncode != 0:
         if SHUTDOWN_REQUESTED:
             raise RuntimeError(f"command stopped during shutdown: {printable}")
-        raise RuntimeError(f"command failed: {printable}")
+        raise CommandFailed(f"command failed: {printable}", result)
     return result
 
 
@@ -552,6 +558,15 @@ def compress_wind2d_json_command() -> tuple[str, ...]:
     return ("scripts/compress_wind2d_json.py",)
 
 
+def is_aromepi_waiting_result(result: dict[str, Any]) -> bool:
+    output = f"{result.get('stdout_tail') or ''}\n{result.get('stderr_tail') or ''}"
+    waiting_markers = (
+        "No complete AROME-PI hybrid run found",
+        "No AROME-PI valid times available inside requested forecast horizon",
+    )
+    return any(marker in output for marker in waiting_markers)
+
+
 def refresh_source(
     source: str,
     command: tuple[str, ...],
@@ -597,6 +612,46 @@ def refresh_source(
                 "publication_schedule": source_publication_schedule(source, source_state, datetime.now(timezone.utc)),
             }
         )
+        return source_status
+    except CommandFailed as exc:
+        if source == "aromepi" and is_aromepi_waiting_result(exc.result):
+            commands.append(exc.result)
+            waited_at_utc = utc_now()
+            current_run = read_run_time(SOURCE_LAYER_PATHS[source])
+            source_state["last_waiting_at_utc"] = waited_at_utc
+            source_state["last_error"] = str(exc)
+            source_state["last_failure_at_utc"] = None
+            source_state["consecutive_failures"] = 0
+            source_state["last_seen_run_time_utc"] = current_run
+            source_state["last_completed_run_time_utc"] = current_run
+            source_status.update(
+                {
+                    "status": "waiting_for_complete_run",
+                    "run_time_utc": current_run,
+                    "changed": False,
+                    "command": exc.result,
+                    "reason": "aromepi_run_not_complete_yet",
+                    "next_retry_hint_sec": args.aromepi_stale_poll_interval_sec,
+                    "publication_schedule": source_publication_schedule(source, source_state, datetime.now(timezone.utc)),
+                }
+            )
+            return source_status
+        source_state["last_failure_at_utc"] = utc_now()
+        source_state["last_error"] = str(exc)
+        source_state["consecutive_failures"] = int(source_state.get("consecutive_failures") or 0) + 1
+        current_run = read_run_time(SOURCE_LAYER_PATHS[source])
+        source_status.update(
+            {
+                "status": "failed",
+                "run_time_utc": current_run,
+                "changed": False,
+                "command": exc.result,
+                "error": str(exc),
+                "consecutive_failures": source_state["consecutive_failures"],
+            }
+        )
+        if source == "arome" and not current_run:
+            raise
         return source_status
     except Exception as exc:
         source_state["last_failure_at_utc"] = utc_now()
