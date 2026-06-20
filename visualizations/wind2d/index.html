@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CorseWind Wind Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./wind2d.css?v=20260620-model-fallback" />
+    <link rel="stylesheet" href="./wind2d.css?v=20260620-model-live-refresh" />
   </head>
   <body>
     <main class="app-shell">
@@ -142,9 +142,11 @@
         <div class="point-inspector__speed" id="point-inspector-speed">--</div>
         <div class="point-inspector__detail" id="point-inspector-detail">Survolez la carte</div>
       </section>
+
+      <div class="model-update-toast" id="model-update-toast" role="status" aria-live="polite" hidden></div>
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script type="module" src="./wind2d.js?v=20260620-model-fallback"></script>
+    <script type="module" src="./wind2d.js?v=20260620-model-live-refresh"></script>
   </body>
 </html>

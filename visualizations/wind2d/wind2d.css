@@ -125,6 +125,33 @@ body {
   border-color: rgba(103, 232, 249, 0.9);
 }
 
+.model-update-toast {
+  position: absolute;
+  top: 104px;
+  right: 16px;
+  z-index: 860;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border: 1px solid rgba(103, 232, 249, 0.34);
+  border-radius: 8px;
+  background: rgba(5, 12, 22, 0.92);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.25;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transform: translateY(-4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.model-update-toast[hidden] {
+  display: none;
+}
+
 .map-layer-rail {
   position: absolute;
   left: 16px;
@@ -1031,6 +1058,14 @@ body {
     height: 34px;
     min-width: 66px;
     padding: 0 10px;
+    font-size: 0.72rem;
+  }
+
+  .model-update-toast {
+    top: 52px;
+    right: 10px;
+    max-width: min(300px, calc(100vw - 20px));
+    padding: 9px 10px;
     font-size: 0.72rem;
   }
 

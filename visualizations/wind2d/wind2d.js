@@ -3,6 +3,7 @@ const RASTER_ENABLED = new URLSearchParams(window.location.search).get("raster")
 const versionedDataUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(DATA_VERSION)}`;
 const cacheBustedUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}poll=${Date.now()}`;
 const gzipJsonUrl = (url) => url.replace(/\.json(?=([?#]|$))/, ".json.gz");
+const MODEL_UPDATE_POLL_INTERVAL_MS = 60_000;
 const AROME_DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
 const AROMEPI_DATA_URL = versionedDataUrl("./aromepi-corsica-latest.json");
 const MOLOCH_DATA_URL = versionedDataUrl("./moloch-corsica-latest.json");
@@ -93,6 +94,8 @@ class AromeWindOverlay extends L.Layer {
     this.rawLayerLoading = { arome: false, aromepi: false, moloch: false, icon2i: false };
     this.rawLayerLoadError = { arome: null, aromepi: null, moloch: null, icon2i: null };
     this.rawLayerLoadPromises = {};
+    this.rawLayerResourceSignatures = {};
+    this.rawLayerPayloadSignatures = {};
     this.visibleLayers = { arome: this.primaryRawLayer === "arome", aromepi: this.primaryRawLayer === "aromepi", moloch: false, icon2i: false, windninja50: false };
     this.displayMode = "speed";
     this.stepIndex = 0;
@@ -1682,6 +1685,13 @@ function rawLayerLabel(layer) {
   return RAW_LAYER_LABELS[layer] || "Modèle";
 }
 
+function modelPayloadSignature(model) {
+  const steps = model?.forecast_steps || [];
+  const first = steps[0]?.valid_time_utc || "";
+  const last = steps[steps.length - 1]?.valid_time_utc || "";
+  return [model?.run_time_utc || "", model?.generated_at_utc || "", steps.length, first, last].join("|");
+}
+
 function rawLayerKeyForPayload(payload) {
   const product = String(payload?.product || "").toLowerCase();
   if (product.includes("aromepi") || product.includes("arome-pi")) return "aromepi";
@@ -1886,6 +1896,8 @@ function setRawModelPayload(overlay, layer, payload) {
   if (layer === "aromepi") overlay.aromepi = model;
   if (layer === "moloch") overlay.moloch = model;
   if (layer === "icon2i") overlay.icon2i = model;
+  if (overlay.primaryRawLayer === layer) overlay.payload = model;
+  overlay.rawLayerPayloadSignatures[layer] = modelPayloadSignature(model);
   return Boolean(rawModelForKey(overlay, layer));
 }
 
@@ -2829,6 +2841,112 @@ function startProgressiveWindNinjaPolling(payload, overlay) {
     }
   };
   window.setInterval(poll, 45000);
+}
+
+function showModelUpdateToast(message) {
+  const toast = document.querySelector("#model-update-toast");
+  if (!toast) return;
+  toast.textContent = message;
+  toast.hidden = false;
+  window.clearTimeout(showModelUpdateToast.hideTimer);
+  showModelUpdateToast.hideTimer = window.setTimeout(() => {
+    toast.hidden = true;
+  }, 6200);
+}
+
+async function fetchModelResourceSignature(url) {
+  const candidates = [gzipJsonUrl(url), url].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const response = await fetch(cacheBustedUrl(candidate), { method: "HEAD", cache: "no-store" });
+      if (!response.ok) continue;
+      return [
+        response.headers.get("Last-Modified") || "",
+        response.headers.get("Content-Length") || "",
+        response.headers.get("ETag") || "",
+        response.headers.get("Content-Encoding") || "",
+      ].join("|");
+    } catch {
+      // Try the next candidate, then let the caller keep the current model.
+    }
+  }
+  return null;
+}
+
+function redrawAfterModelUpdate(overlay, payload) {
+  overlay.heatDirty = true;
+  overlay.windNinjaDataTileCache?.clear();
+  overlay.resetParticles?.();
+  overlay.refreshTileLayers?.();
+  overlay.redrawHeatLayer?.();
+  syncLayerControls(overlay);
+  syncModeControls(overlay);
+  buildForecastButtons(overlay.payload || payload, overlay);
+  updateReadout(overlay.payload || payload, overlay);
+  refreshPinnedPointInspector(overlay);
+}
+
+function applyRawModelUpdate(overlay, layer, payload) {
+  const activeLayer = rawModelKey(overlay);
+  const wasActive = activeLayer === layer;
+  const previousValidTime = displayedValidTimeUtc(overlay);
+  const previousLeadHour = overlay.activeLeadHour;
+  const previousSignature = overlay.rawLayerPayloadSignatures[layer] || modelPayloadSignature(rawModelForKey(overlay, layer));
+  if (!setRawModelPayload(overlay, layer, payload)) return false;
+  const model = rawModelForKey(overlay, layer);
+  const nextSignature = modelPayloadSignature(model);
+  if (nextSignature === previousSignature) return false;
+  if (wasActive) {
+    const nextStep =
+      forecastStepByValidTime(model, previousValidTime) ||
+      forecastStepByLead(model, previousLeadHour) ||
+      closestForecastStepByValidTime(model, previousValidTime) ||
+      model.forecast_steps?.[0] ||
+      null;
+    if (nextStep) setActiveLeadHour(overlay, nextStep.lead_hour);
+    redrawAfterModelUpdate(overlay, overlay.payload);
+  } else {
+    syncLayerControls(overlay);
+    refreshCoverageStatus(overlay);
+  }
+  return true;
+}
+
+function startRawModelUpdatePolling(overlay) {
+  const poll = async () => {
+    if (document.hidden) return;
+    for (const layer of RAW_LAYER_KEYS) {
+      const url = rawModelUrl(layer);
+      if (!url) continue;
+      const signature = await fetchModelResourceSignature(url);
+      const previousResourceSignature = Object.prototype.hasOwnProperty.call(overlay.rawLayerResourceSignatures, layer)
+        ? overlay.rawLayerResourceSignatures[layer]
+        : undefined;
+      overlay.rawLayerResourceSignatures[layer] = signature;
+      if (!signature || previousResourceSignature === undefined || previousResourceSignature === signature) continue;
+
+      const isActive = rawModelKey(overlay) === layer;
+      const isLoaded = Boolean(rawModelForKey(overlay, layer));
+      if (!isActive && !isLoaded) {
+        showModelUpdateToast(`${rawLayerLabel(layer)} disponible`);
+        syncLayerControls(overlay);
+        continue;
+      }
+
+      const payload = await fetchJsonWithGzipFallback(url, true);
+      if (!payload?.forecast_steps?.length) continue;
+      const changed = applyRawModelUpdate(overlay, layer, payload);
+      if (changed && isActive) {
+        showModelUpdateToast(`${rawLayerLabel(layer)} mis à jour · run ${formatRunStamp(payload.run_time_utc)}`);
+      }
+    }
+  };
+  window.setInterval(() => {
+    poll().catch((error) => console.debug("Raw model update polling failed", error));
+  }, MODEL_UPDATE_POLL_INTERVAL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) poll().catch((error) => console.debug("Raw model update polling failed", error));
+  });
 }
 
 function chooseInitialForecastIndex(payload) {
@@ -3852,6 +3970,9 @@ async function main() {
   const payload = await fetchInitialForecastPayload();
   if (!payload) throw new Error("Unable to load any Wind2D forecast model");
   const overlay = new AromeWindOverlay(payload);
+  const primaryLayer = rawLayerKeyForPayload(payload) || overlay.primaryRawLayer;
+  const primaryModel = rawModelForKey(overlay, primaryLayer);
+  if (primaryModel) overlay.rawLayerPayloadSignatures[primaryLayer] = modelPayloadSignature(primaryModel);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
   overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
   applyPreferredForecastLayer(overlay);
@@ -3876,6 +3997,7 @@ async function main() {
     });
   }, 0);
   startProgressiveWindNinjaPolling(payload, overlay);
+  startRawModelUpdatePolling(overlay);
 }
 
 async function fetchGzipJson(url, bustCache = false) {
