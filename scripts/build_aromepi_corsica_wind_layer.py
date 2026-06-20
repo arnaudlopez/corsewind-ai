@@ -148,6 +148,15 @@ def download_tiff(
     return True
 
 
+def is_unavailable_time_error(exc: SystemExit) -> bool:
+    message = str(exc)
+    return (
+        "InvalidSubsetting" in message
+        or "time must be" in message
+        or "868404" in message
+    )
+
+
 def resample_regular(source: np.ndarray, target_shape: tuple[int, int]) -> np.ndarray:
     if source.shape == target_shape:
         return source.astype(float, copy=False)
@@ -195,19 +204,28 @@ def build_payload(
     for valid_time in valid_times:
         minute_offset = int((valid_time - run_time).total_seconds() // 60)
         rasters: dict[str, np.ndarray] = {}
-        for variable_name in ("gust_speed",):
-            output = raw_dir / f"aromepi_001_corsica_{slug}_m{minute_offset:03d}_{variable_name}_10m.tiff"
-            downloaded = download_tiff("aromepi", "001", coverages[variable_name], output, bbox, valid_time, auth_header)
-            if downloaded and request_sleep_sec > 0:
-                time.sleep(request_sleep_sec)
-            rasters[variable_name] = read_float64_tiff(output)
+        try:
+            for variable_name in ("gust_speed",):
+                output = raw_dir / f"aromepi_001_corsica_{slug}_m{minute_offset:03d}_{variable_name}_10m.tiff"
+                downloaded = download_tiff("aromepi", "001", coverages[variable_name], output, bbox, valid_time, auth_header)
+                if downloaded and request_sleep_sec > 0:
+                    time.sleep(request_sleep_sec)
+                rasters[variable_name] = read_float64_tiff(output)
 
-        for variable_name in ("mean_speed", "mean_u", "mean_v"):
-            output = raw_dir / f"aromepi_0025_corsica_{slug}_m{minute_offset:03d}_{variable_name}_10m.tiff"
-            downloaded = download_tiff("aromepi", "0025", coverages[variable_name], output, bbox, valid_time, auth_header)
-            if downloaded and request_sleep_sec > 0:
-                time.sleep(request_sleep_sec)
-            rasters[variable_name] = read_float64_tiff(output)
+            for variable_name in ("mean_speed", "mean_u", "mean_v"):
+                output = raw_dir / f"aromepi_0025_corsica_{slug}_m{minute_offset:03d}_{variable_name}_10m.tiff"
+                downloaded = download_tiff("aromepi", "0025", coverages[variable_name], output, bbox, valid_time, auth_header)
+                if downloaded and request_sleep_sec > 0:
+                    time.sleep(request_sleep_sec)
+                rasters[variable_name] = read_float64_tiff(output)
+        except SystemExit as exc:
+            if is_unavailable_time_error(exc):
+                print(
+                    f"stopping AROME-PI at unavailable valid time {valid_time.isoformat().replace('+00:00', 'Z')}: {exc}",
+                    flush=True,
+                )
+                break
+            raise
 
         gust_speed = rasters["gust_speed"]
         target_shape = gust_speed.shape
