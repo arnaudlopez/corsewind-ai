@@ -5,9 +5,14 @@ const cacheBustedUrl = (url) => `${url}${url.includes("?") ? "&" : "?"}poll=${Da
 const gzipJsonUrl = (url) => url.replace(/\.json(?=([?#]|$))/, ".json.gz");
 const AROME_DATA_URL = versionedDataUrl("./arome-corsica-latest.json");
 const AROMEPI_DATA_URL = versionedDataUrl("./aromepi-corsica-latest.json");
-const DATA_URL = AROMEPI_DATA_URL;
 const MOLOCH_DATA_URL = versionedDataUrl("./moloch-corsica-latest.json");
 const ICON2I_DATA_URL = versionedDataUrl("./icon2i-corsica-latest.json");
+const INITIAL_MODEL_URLS = [
+  { layer: "aromepi", url: AROMEPI_DATA_URL },
+  { layer: "arome", url: AROME_DATA_URL },
+  { layer: "icon2i", url: ICON2I_DATA_URL },
+  { layer: "moloch", url: MOLOCH_DATA_URL },
+];
 const RASTER_TILES_MANIFEST_URL = versionedDataUrl("./tiles/manifest.json");
 const WINDNINJA_CORSICA_50M_DATA_MANIFEST_URL = versionedDataUrl("./windninja-corsica-data-50m/manifest.json");
 const WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL = versionedDataUrl("./windninja-corsica-tiles-50m/manifest.json");
@@ -60,10 +65,10 @@ class AromeWindOverlay extends L.Layer {
     super();
     this.payload = payload;
     this.bbox = payload.bbox_wgs84;
-    this.primaryRawLayer = payload.product === "aromepi" ? "aromepi" : "arome";
+    this.primaryRawLayer = rawLayerKeyForPayload(payload) || "arome";
     this.arome = this.primaryRawLayer === "arome" ? buildRawWindLayer(payload) : null;
-    this.moloch = buildRawWindLayer(molochPayload);
-    this.icon2i = buildRawWindLayer(icon2iPayload);
+    this.moloch = buildRawWindLayer(molochPayload || (this.primaryRawLayer === "moloch" ? payload : null));
+    this.icon2i = buildRawWindLayer(icon2iPayload || (this.primaryRawLayer === "icon2i" ? payload : null));
     this.aromepi = buildRawWindLayer(aromePiPayload || (this.primaryRawLayer === "aromepi" ? payload : null));
     this.cfd = buildCfdCorrection(cfdPayload);
     this.coastalTiles = buildCoastalTileLayer(coastalTilePayload);
@@ -191,9 +196,7 @@ class AromeWindOverlay extends L.Layer {
       for (const rawLayer of RAW_LAYER_KEYS) this.visibleLayers[rawLayer] = false;
     }
     this.visibleLayers[layer] = Boolean(visible);
-    if (!anyRawLayerVisible(this) && !this.visibleLayers.windninja50) {
-      this.visibleLayers.arome = true;
-    }
+    if (!anyRawLayerVisible(this) && !this.visibleLayers.windninja50) setFirstAvailableRawLayerVisible(this);
     this.syncCanvasVisibility();
     this.syncParticleVisibility();
     this.heatDirty = true;
@@ -1679,8 +1682,28 @@ function rawLayerLabel(layer) {
   return RAW_LAYER_LABELS[layer] || "Modèle";
 }
 
+function rawLayerKeyForPayload(payload) {
+  const product = String(payload?.product || "").toLowerCase();
+  if (product.includes("aromepi") || product.includes("arome-pi")) return "aromepi";
+  if (product.includes("moloch")) return "moloch";
+  if (product.includes("icon")) return "icon2i";
+  if (product.includes("arome")) return "arome";
+  return null;
+}
+
 function anyRawLayerVisible(overlay) {
   return RAW_LAYER_KEYS.some((layer) => Boolean(overlay.visibleLayers?.[layer]));
+}
+
+function firstAvailableRawLayer(overlay) {
+  return RAW_LAYER_KEYS.find((layer) => Boolean(rawModelForKey(overlay, layer))) || null;
+}
+
+function setFirstAvailableRawLayerVisible(overlay) {
+  const fallbackLayer = firstAvailableRawLayer(overlay);
+  if (!fallbackLayer) return false;
+  for (const rawLayer of RAW_LAYER_KEYS) overlay.visibleLayers[rawLayer] = rawLayer === fallbackLayer;
+  return true;
 }
 
 function tilePixelToLatLng(globalX, globalY, zoom, tileSize = 256) {
@@ -2757,7 +2780,7 @@ function applyPreferredForecastLayer(overlay) {
     for (const rawLayer of RAW_LAYER_KEYS) overlay.visibleLayers[rawLayer] = false;
   } else {
     overlay.visibleLayers.windninja50 = false;
-    if (!anyRawLayerVisible(overlay)) overlay.visibleLayers.arome = true;
+    if (!anyRawLayerVisible(overlay)) setFirstAvailableRawLayerVisible(overlay);
   }
   if (!windNinjaAvailable) overlay.displayMode = "speed";
   overlay.heatDirty = true;
@@ -3826,8 +3849,8 @@ async function main() {
 
   L.control.zoom({ position: "topleft" }).addTo(map);
 
-  const payload = await fetchJsonWithGzipFallback(DATA_URL);
-  if (!payload) throw new Error(`Unable to load ${DATA_URL}`);
+  const payload = await fetchInitialForecastPayload();
+  if (!payload) throw new Error("Unable to load any Wind2D forecast model");
   const overlay = new AromeWindOverlay(payload);
   overlay.stepIndex = chooseInitialForecastIndex(payload);
   overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
@@ -3882,6 +3905,18 @@ async function fetchJsonWithGzipFallback(url, bustCache = false) {
   const response = await fetch(bustCache ? cacheBustedUrl(url) : url, { cache: bustCache ? "no-store" : "default" });
   if (!response.ok) return null;
   return await response.json();
+}
+
+async function fetchInitialForecastPayload() {
+  for (const candidate of INITIAL_MODEL_URLS) {
+    try {
+      const payload = await fetchJsonWithGzipFallback(candidate.url);
+      if (payload?.forecast_steps?.length) return payload;
+    } catch (error) {
+      console.debug(`Initial ${rawLayerLabel(candidate.layer)} load failed`, error);
+    }
+  }
+  return null;
 }
 
 async function fetchOptionalJson(url, bustCache = false, gzipFirst = false) {
