@@ -323,7 +323,7 @@ Avec Portainer en mode Git stack :
 - le stack peut reconstruire l'image depuis le depot a chaque pull ;
 - seule la variable `METEOFRANCE_API_KEY` est obligatoire pour le mode sans WindNinja ;
 - `WINDNINJA_ENABLED=false` desactive l'execution WindNinja et la generation des tuiles/data WindNinja, tout en conservant la mise a jour des couches modele ;
-- le serveur web Wind2D est optionnel : definir `COMPOSE_PROFILES=wind2d-web` pour l'activer, et `WIND2D_WEB_PORT=8769` pour choisir le port hote ;
+- le serveur web Wind2D est lance par defaut ; definir `WIND2D_WEB_PORT=8769` pour choisir le port hote ;
 - le compose ne depend pas d'un fichier `.env` committe ; en local, Docker Compose lit toujours `.env` automatiquement pour l'interpolation ;
 - les donnees generees restent dans des volumes Docker nommes, pas dans l'image ;
 - lors d'un redeploiement, Portainer envoie `SIGTERM`, le moteur arrete la commande enfant si necessaire, ecrit un statut `stopping` si l'arret tombe au milieu d'une commande, puis relache le lock ;
@@ -339,7 +339,7 @@ Le service web optionnel sert le viewer avec gzip via :
 http://<host>:<WIND2D_WEB_PORT>/visualizations/wind2d/
 ```
 
-Sans `COMPOSE_PROFILES=wind2d-web`, aucun serveur web n'est lance.
+Le service web partage le volume Docker `corsewind-wind2d` avec le moteur.
 
 Le container expose aussi un healthcheck :
 
