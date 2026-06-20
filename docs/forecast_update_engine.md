@@ -363,6 +363,7 @@ Configuration par defaut :
 - AROME-PI : prochaines 24 h au pas 15 minutes ;
 - mode AROME reduit optionnel : `--arome-lead-hour-policy session` ;
 - pause AROME : `1.3 s` apres chaque raster telecharge, pour rester compatible avec le quota API ;
+- pause AROME-PI : `1.3 s` apres chaque raster telecharge, necessaire avec l'horizon 24 h pour rester sous un quota de type 50 requetes/minute ;
 - selection WindNinja : fenetre windsurf locale `11h-17h`, aujourd'hui horaire, demain toutes les 2 h ;
 - produit WindNinja : 50 m, hauteur 10 m ;
 - tuiles : 20 km avec 2 km d'overlap ;

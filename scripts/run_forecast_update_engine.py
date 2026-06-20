@@ -1280,7 +1280,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--aromepi-stale-poll-interval-sec", type=int, default=60, help="Fast AROME-PI polling interval once the last seen run is older than the freshness target.")
     parser.add_argument("--aromepi-freshness-target-sec", type=int, default=900, help="AROME-PI freshness target before switching to fast polling.")
     parser.add_argument("--aromepi-horizon-hours", type=int, default=24, help="Rolling AROME-PI forecast horizon to publish.")
-    parser.add_argument("--aromepi-request-sleep-sec", type=float, default=0.2)
+    parser.add_argument("--aromepi-request-sleep-sec", type=float, default=1.3)
     parser.add_argument("--enable-moloch", action="store_true", help="Build the optional MOLOCH 1.2 km viewer layer.")
     parser.add_argument("--moloch-input", default=None, help="Local GRIB/NetCDF/JSON file or direct URL. Defaults to MOLOCH_SOURCE_URL.")
     parser.add_argument("--moloch-dataset", default="MOLOCH")

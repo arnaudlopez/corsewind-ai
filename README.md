@@ -100,6 +100,7 @@ python3 scripts/run_forecast_update_engine.py \
   --aromepi-stale-poll-interval-sec 60 \
   --aromepi-freshness-target-sec 900 \
   --aromepi-horizon-hours 24 \
+  --aromepi-request-sleep-sec 1.3 \
   --fast-window-poll-interval-sec 60 \
   --enable-moloch \
   --moloch-poll-interval-sec 1800 \

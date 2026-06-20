@@ -45,6 +45,8 @@ services:
       - "900"
       - --aromepi-horizon-hours
       - "24"
+      - --aromepi-request-sleep-sec
+      - "1.3"
       - --enable-moloch
       - --moloch-poll-interval-sec
       - "1800"
