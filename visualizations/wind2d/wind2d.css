@@ -1041,9 +1041,18 @@ body {
   transition: none !important;
 }
 
+.app-shell.wind-overlay-input-pending .wind-heat-pane,
+.app-shell.wind-overlay-zooming .wind-heat-pane {
+  opacity: 1;
+}
+
+.leaflet-zoom-anim .leaflet-zoom-animated {
+  transition-duration: 90ms;
+}
+
 .app-shell.wind-overlay-zoom-transition .cfd-wind-canvas,
 .app-shell.wind-overlay-zoom-transition .wind-particle-canvas {
-  transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
+  transition: transform 90ms cubic-bezier(0, 0, 0.25, 1);
 }
 
 @media (max-width: 780px) {

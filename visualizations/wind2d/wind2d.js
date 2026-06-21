@@ -15,6 +15,7 @@ const INITIAL_MODEL_URLS = [
   { layer: "moloch", url: MOLOCH_DATA_URL },
 ];
 const RASTER_TILES_MANIFEST_URL = versionedDataUrl("./tiles/manifest.json");
+const modelRasterManifestUrl = (model) => versionedDataUrl(`./tiles/${model}/manifest.json`);
 const WINDNINJA_CORSICA_50M_DATA_MANIFEST_URL = versionedDataUrl("./windninja-corsica-data-50m/manifest.json");
 const WINDNINJA_CORSICA_50M_TILES_MANIFEST_URL = versionedDataUrl("./windninja-corsica-tiles-50m/manifest.json");
 const CFD_URL = versionedDataUrl("../../data/processed/physics/ajaccio_cfd_pilot/cfd_micro50_smoke_layer.json");
@@ -30,6 +31,7 @@ const REGIME_QA_URL = versionedDataUrl("../../data/processed/physics/ajaccio_win
 const VALIDATION_URL = versionedDataUrl("../../data/processed/validation/ajaccio_windsurf_casebook.json");
 const VALIDATION_GAPS_URL = versionedDataUrl("../../data/processed/validation/ajaccio_windsurf_session_decision_gaps.json");
 const FIELD_TEST_PACKET_URL = versionedDataUrl("../../data/processed/validation/ajaccio_windsurf_field_test_packet.json");
+const BASEMAP_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
 const CENTER = [42.14, 9.08];
 const VIEW_BOUNDS = [
   [41.25, 8.45],
@@ -87,7 +89,10 @@ class AromeWindOverlay extends L.Layer {
     this.regimeQa = buildRegimeQaState(regimeQaPayload);
     this.validationGaps = buildValidationGapState(validationGapsPayload);
     this.fieldTestPacket = buildFieldTestPacketState(fieldTestPacketPayload);
+    // Pre-baked colour tiles per raw model (arome/aromepi/moloch/icon2i). rasterTiles always
+    // points at the active model's state; rasterTilesByModel holds every loaded manifest.
     this.rasterTiles = buildRasterTileState(rasterTilePayload);
+    this.rasterTilesByModel = {};
     this.windNinjaCorsicaTiles = buildRasterTileState(windNinjaCorsicaTilePayload);
     this.windNinjaCorsica1mTiles = buildRasterTileState(windNinjaCorsica1mTilePayload);
     this.windNinjaCorsica50mTiles = buildRasterTileState(windNinjaCorsica50mTilePayload);
@@ -103,19 +108,32 @@ class AromeWindOverlay extends L.Layer {
     this.scaleMaxKnots = DEFAULT_SCALE_MAX_KT;
     this.particlesEnabled = true;
     this.particleOpacity = 3;
-    this.particleDensity = 3;
+    this.particleDensity = 2.1;
     this.particleLifeScale = 4;
     this.particleSizeScale = 1;
     this.particles = [];
     this.particleFrame = null;
+    this.lastParticleDrawTime = null;
     this.lastParticleTime = null;
     this.windNinjaDataTileCache = new Map();
+    this.heatTileRenderCache = new Map();
+    this.heatTilePrewarmKeys = new Set();
+    this.heatTilePrewarmIdle = null;
     this.heatTileLayer = null;
     this.heatCanvas = document.createElement("canvas");
     this.heatCtx = this.heatCanvas.getContext("2d", { alpha: true });
     this.zoomAnimating = false;
     this.zoomAnimationState = null;
     this.zoomAnimationMode = null;
+    this.zoomResetFrame = null;
+    this.zoomResetTimer = null;
+    this.zoomResetIdle = null;
+    this.tilePrefetchCache = new Map();
+    this.tilePrefetchFrame = null;
+    this.lastTilePrefetchKey = null;
+    this.inputPauseUntil = 0;
+    this.inputPauseTimer = null;
+    this.scaleRedrawTimer = null;
     this.renderView = null;
     this.renderMetrics = null;
     this.shell = null;
@@ -154,6 +172,8 @@ class AromeWindOverlay extends L.Layer {
     this.activeLeadHour = Number(leadHour ?? this.payload.forecast_steps[index]?.lead_hour ?? this.activeLeadHour);
     applyPreferredForecastLayer(this);
     this.heatDirty = true;
+    // No clearHeatTileCache(): the lead hour is part of the cache key, so switching steps reuses
+    // previously rendered tiles instead of re-rasterising them. The LRU handles eviction.
     this.windNinjaDataTileCache.clear();
     this.resetParticles();
     this.refreshTileLayers();
@@ -164,14 +184,22 @@ class AromeWindOverlay extends L.Layer {
   setScaleMaxKnots(value) {
     this.scaleMaxKnots = Math.max(6, Math.min(80, Number(value) || DEFAULT_SCALE_MAX_KT));
     this.heatDirty = true;
-    this.redrawWindNinjaDataLayers();
-    this.redrawHeatLayer();
+    // The scale value is part of the heat-tile cache key, so we never need to wipe the cache:
+    // each scale produces distinct keys and the LRU evicts old ones. Debounce the heavy redraw
+    // so dragging the slider doesn't re-render every tile on each input event.
+    if (this.scaleRedrawTimer) window.clearTimeout(this.scaleRedrawTimer);
+    this.scaleRedrawTimer = window.setTimeout(() => {
+      this.scaleRedrawTimer = null;
+      this.redrawWindNinjaDataLayers();
+      this.redrawHeatLayer();
+    }, 140);
   }
 
   setDisplayMode(mode) {
     const nextMode = ["speed", "devente", "acceleration"].includes(mode) ? mode : "speed";
     this.displayMode = windNinjaModesAvailable(this) ? nextMode : "speed";
     this.heatDirty = true;
+    this.clearHeatTileCache();
     this.syncCanvasVisibility();
     this.syncParticleVisibility();
     this.refreshTileLayers();
@@ -203,6 +231,8 @@ class AromeWindOverlay extends L.Layer {
     this.syncCanvasVisibility();
     this.syncParticleVisibility();
     this.heatDirty = true;
+    // No clearHeatTileCache(): the active model is part of the cache key, so toggling layers
+    // reuses tiles already rendered for each model rather than re-rasterising them.
     this.windNinjaDataTileCache.clear();
     this.resetParticles();
     this.refreshTileLayers();
@@ -238,11 +268,19 @@ class AromeWindOverlay extends L.Layer {
   }
 
   refreshTileLayers() {
+    updateRasterTileLayer(this);
     updateWindNinjaCorsicaTileLayer(this);
+    // Raster availability can change with zoom/step/model (e.g. crossing the native min zoom),
+    // so re-sync the JS heat layer: hide it when raster covers, restore + redraw it otherwise.
+    this.redrawHeatLayer();
   }
 
   heatLayerVisible() {
-    return Boolean(anyRawLayerVisible(this) && this.displayMode === "speed");
+    if (!anyRawLayerVisible(this) || this.displayMode !== "speed") return false;
+    // When pre-baked raster tiles cover the active model/step/zoom, they replace the JS heat
+    // layer entirely — drawing both would double the overlay and waste CPU.
+    if (activeModelRasterAvailable(this)) return false;
+    return true;
   }
 
   syncHeatTileLayerVisibility() {
@@ -255,6 +293,15 @@ class AromeWindOverlay extends L.Layer {
     if (!this.heatTileLayer) return;
     this.syncHeatTileLayerVisibility();
     if (this.heatLayerVisible()) this.heatTileLayer.redraw();
+  }
+
+  clearHeatTileCache() {
+    this.heatTileRenderCache.clear();
+    this.heatTilePrewarmKeys.clear();
+    if (this.heatTilePrewarmIdle && window.cancelIdleCallback) {
+      window.cancelIdleCallback(this.heatTilePrewarmIdle);
+      this.heatTilePrewarmIdle = null;
+    }
   }
 
   redrawWindNinjaDataLayers() {
@@ -302,11 +349,13 @@ class AromeWindOverlay extends L.Layer {
     map.on("zoom", this.onZoomProgress, this);
     map.on("zoomend", this.onZoomEnd, this);
     map.on("zoomend", this.refreshTileLayers, this);
+    map.on("moveend", this.onMoveEnd, this);
     map.on("zoomend moveend", this.maybeLoadPriorityCorridors, this);
     this.reset();
     this.refreshTileLayers();
     this.draw();
     this.maybeLoadPriorityCorridors();
+    this.scheduleHeatTilePrewarm(map.getCenter(), map.getZoom());
     this.startParticleLoop();
   }
 
@@ -317,9 +366,25 @@ class AromeWindOverlay extends L.Layer {
     map.off("zoom", this.onZoomProgress, this);
     map.off("zoomend", this.onZoomEnd, this);
     map.off("zoomend", this.refreshTileLayers, this);
+    map.off("moveend", this.onMoveEnd, this);
     map.off("zoomend moveend", this.maybeLoadPriorityCorridors, this);
     if (this.particleFrame) cancelAnimationFrame(this.particleFrame);
-    if (this.rasterTiles?.activeLayer) map.removeLayer(this.rasterTiles.activeLayer);
+    if (this.zoomResetFrame) cancelAnimationFrame(this.zoomResetFrame);
+    if (this.zoomResetTimer) window.clearTimeout(this.zoomResetTimer);
+    if (this.zoomResetIdle && window.cancelIdleCallback) {
+      window.cancelIdleCallback(this.zoomResetIdle);
+      this.zoomResetIdle = null;
+    }
+    if (this.tilePrefetchFrame) cancelAnimationFrame(this.tilePrefetchFrame);
+    if (this.heatTilePrewarmIdle && window.cancelIdleCallback) {
+      window.cancelIdleCallback(this.heatTilePrewarmIdle);
+      this.heatTilePrewarmIdle = null;
+    }
+    if (this.inputPauseTimer) window.clearTimeout(this.inputPauseTimer);
+    if (this.scaleRedrawTimer) window.clearTimeout(this.scaleRedrawTimer);
+    for (const state of Object.values(this.rasterTilesByModel || {})) {
+      if (state.activeLayer) map.removeLayer(state.activeLayer);
+    }
     if (this.heatTileLayer) map.removeLayer(this.heatTileLayer);
     if (this.windNinjaCorsica50mTiles?.activeLayer) map.removeLayer(this.windNinjaCorsica50mTiles.activeLayer);
     if (this.windNinjaCorsicaTiles?.activeLayer) map.removeLayer(this.windNinjaCorsicaTiles.activeLayer);
@@ -362,6 +427,18 @@ class AromeWindOverlay extends L.Layer {
 
   beginZoomTracking(mode = null) {
     if (!this.map) return;
+    if (this.zoomResetFrame) {
+      cancelAnimationFrame(this.zoomResetFrame);
+      this.zoomResetFrame = null;
+    }
+    if (this.zoomResetTimer) {
+      window.clearTimeout(this.zoomResetTimer);
+      this.zoomResetTimer = null;
+    }
+    if (this.zoomResetIdle && window.cancelIdleCallback) {
+      window.cancelIdleCallback(this.zoomResetIdle);
+      this.zoomResetIdle = null;
+    }
     this.zoomAnimating = true;
     this.zoomAnimationMode = mode;
     this.zoomAnimationState = this.renderView || this.captureRenderView();
@@ -370,8 +447,22 @@ class AromeWindOverlay extends L.Layer {
     this.setOverlayTransform(L.point(0, 0), 1);
   }
 
+  prepareZoomInput(durationMs = 130) {
+    this.inputPauseUntil = performance.now() + durationMs;
+    this.lastParticleDrawTime = null;
+    this.lastParticleTime = null;
+    this.shell?.classList.add("wind-overlay-input-pending");
+    if (this.inputPauseTimer) window.clearTimeout(this.inputPauseTimer);
+    this.inputPauseTimer = window.setTimeout(() => {
+      this.inputPauseTimer = null;
+      this.shell?.classList.remove("wind-overlay-input-pending");
+    }, durationMs);
+  }
+
   onZoomStart() {
     this.beginZoomTracking(null);
+    this.prefetchBasemapTiles(this.map.getCenter(), this.map.getZoom());
+    this.scheduleHeatTilePrewarm(this.map.getCenter(), this.map.getZoom());
   }
 
   applyZoomTransform(center, zoom) {
@@ -384,10 +475,6 @@ class AromeWindOverlay extends L.Layer {
     const targetCenter = center || this.map.getCenter();
     const targetZoom = zoom ?? this.map.getZoom();
     const scale = this.map.getZoomScale(targetZoom, state.zoom);
-    if (scale < 1) {
-      this.setOverlayTransform(L.point(0, 0), 1);
-      return;
-    }
     const startTopLeft = this.map.project(state.center, state.zoom).subtract(size.divideBy(2)).subtract(pad);
     const targetTopLeft = this.map.project(targetCenter, targetZoom).subtract(size.divideBy(2)).subtract(pad);
     const offset = startTopLeft.multiplyBy(scale).subtract(targetTopLeft);
@@ -400,6 +487,8 @@ class AromeWindOverlay extends L.Layer {
     this.zoomAnimationMode = "animated";
     this.shell?.classList.add("wind-overlay-zoom-transition");
     this.applyZoomTransform(event.center, event.zoom);
+    this.prefetchBasemapTiles(event.center, event.zoom);
+    this.scheduleHeatTilePrewarm(event.center, event.zoom);
   }
 
   onZoomProgress() {
@@ -407,16 +496,88 @@ class AromeWindOverlay extends L.Layer {
     if (!this.zoomAnimating || !this.zoomAnimationState) this.beginZoomTracking(null);
     this.shell?.classList.remove("wind-overlay-zoom-transition");
     this.applyZoomTransform(this.map.getCenter(), this.map.getZoom());
+    this.prefetchBasemapTiles(this.map.getCenter(), this.map.getZoom());
+    this.scheduleHeatTilePrewarm(this.map.getCenter(), this.map.getZoom());
+  }
+
+  onMoveEnd() {
+    if (!this.map || this.zoomAnimating) return;
+    this.scheduleHeatTilePrewarm(this.map.getCenter(), this.map.getZoom());
+  }
+
+  prefetchBasemapTiles(center, zoom) {
+    if (!this.map || !center || !Number.isFinite(zoom)) return;
+    const sourceZoom = this.zoomAnimationState?.zoom ?? this.map.getZoom();
+    const targetZoom = Math.max(this.map.getMinZoom(), Math.min(this.map.getMaxZoom(), zoom));
+    const tileZoom = Math.max(
+      this.map.getMinZoom(),
+      Math.min(this.map.getMaxZoom(), targetZoom < sourceZoom ? Math.floor(targetZoom) : Math.ceil(targetZoom))
+    );
+    const roundedCenter = `${center.lat.toFixed(3)}:${center.lng.toFixed(3)}`;
+    const key = `${tileZoom}:${roundedCenter}`;
+    if (key === this.lastTilePrefetchKey) return;
+    this.lastTilePrefetchKey = key;
+    if (this.tilePrefetchFrame) cancelAnimationFrame(this.tilePrefetchFrame);
+    this.tilePrefetchFrame = requestAnimationFrame(() => {
+      this.tilePrefetchFrame = null;
+      prefetchTileRange(this.map, center, tileZoom, BASEMAP_TILE_URL, this.tilePrefetchCache, 18);
+    });
+  }
+
+  scheduleHeatTilePrewarm(center, zoom = this.map?.getZoom()) {
+    if (!this.map || !center || !this.heatLayerVisible()) return;
+    const sourceZoom = this.zoomAnimationState?.zoom ?? this.map.getZoom();
+    const targetZoom = Math.max(this.map.getMinZoom(), Math.min(this.map.getMaxZoom(), zoom));
+    const candidateZooms = [
+      targetZoom < sourceZoom ? Math.floor(targetZoom) : Math.ceil(targetZoom),
+      Math.floor(sourceZoom) - 1,
+      Math.ceil(sourceZoom) + 1,
+    ];
+    const zooms = [...new Set(candidateZooms)]
+      .filter((candidate) => Number.isFinite(candidate))
+      .map((candidate) => Math.max(this.map.getMinZoom(), Math.min(this.map.getMaxZoom(), candidate)));
+    const prewarm = () => {
+      this.heatTilePrewarmIdle = null;
+      for (const tileZoom of zooms) {
+        prewarmWindHeatTiles(this, center, tileZoom, 6);
+      }
+    };
+    if (this.heatTilePrewarmIdle && window.cancelIdleCallback) window.cancelIdleCallback(this.heatTilePrewarmIdle);
+    if (window.requestIdleCallback) {
+      this.heatTilePrewarmIdle = window.requestIdleCallback(prewarm, { timeout: 350 });
+    } else {
+      window.setTimeout(prewarm, 120);
+    }
   }
 
   onZoomEnd() {
+    if (this.zoomAnimationState) this.applyZoomTransform(this.map.getCenter(), this.map.getZoom());
     this.zoomAnimating = false;
     this.zoomAnimationState = null;
     this.zoomAnimationMode = null;
     this.shell?.classList.remove("wind-overlay-zooming");
     this.shell?.classList.remove("wind-overlay-zoom-transition");
-    this.setOverlayTransform(L.point(0, 0), 1);
-    this.reset();
+    if (this.zoomResetFrame) cancelAnimationFrame(this.zoomResetFrame);
+    if (this.zoomResetTimer) window.clearTimeout(this.zoomResetTimer);
+    if (this.zoomResetIdle && window.cancelIdleCallback) {
+      window.cancelIdleCallback(this.zoomResetIdle);
+      this.zoomResetIdle = null;
+    }
+    this.lastParticleDrawTime = null;
+    this.lastParticleTime = null;
+    this.zoomResetFrame = requestAnimationFrame(() => {
+      this.zoomResetFrame = null;
+      const finishZoomReset = () => {
+        this.zoomResetIdle = null;
+        this.zoomResetTimer = null;
+        this.shell?.classList.remove("wind-overlay-input-pending");
+        this.setOverlayTransform(L.point(0, 0), 1);
+        this.reset(null, { preserveParticles: true });
+        this.syncCanvasVisibility();
+        this.scheduleHeatTilePrewarm(this.map.getCenter(), this.map.getZoom());
+      };
+      finishZoomReset();
+    });
   }
 
   maybeLoadPriorityCorridors() {
@@ -456,7 +617,7 @@ class AromeWindOverlay extends L.Layer {
       });
   }
 
-  reset(event = null) {
+  reset(event = null, options = {}) {
     if (this.zoomAnimating && event?.type === "move") {
       if (this.zoomAnimationMode !== "animated") this.applyZoomTransform(this.map.getCenter(), this.map.getZoom());
       return;
@@ -474,15 +635,22 @@ class AromeWindOverlay extends L.Layer {
     this.ctx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
     this.heatDirty = true;
     if (this.particleCanvas) {
+      const particleWidth = Math.ceil(metrics.cssSize.x * ratio);
+      const particleHeight = Math.ceil(metrics.cssSize.y * ratio);
+      const particleSizeChanged = this.particleCanvas.width !== particleWidth || this.particleCanvas.height !== particleHeight;
       this.particleCanvas.style.left = `${-metrics.pad.x}px`;
       this.particleCanvas.style.top = `${-metrics.pad.y}px`;
-      this.particleCanvas.width = Math.ceil(metrics.cssSize.x * ratio);
-      this.particleCanvas.height = Math.ceil(metrics.cssSize.y * ratio);
+      if (particleSizeChanged) {
+        this.particleCanvas.width = particleWidth;
+        this.particleCanvas.height = particleHeight;
+      }
       this.particleCanvas.style.width = `${metrics.cssSize.x}px`;
       this.particleCanvas.style.height = `${metrics.cssSize.y}px`;
       this.particleCtx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
-      this.particleCtx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
-      this.resetParticles();
+      if (!options.preserveParticles || particleSizeChanged) {
+        this.particleCtx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
+        this.resetParticles();
+      }
     }
     this.draw();
     this.captureRenderView(metrics);
@@ -947,6 +1115,11 @@ class AromeWindOverlay extends L.Layer {
   }
 
   drawHeat() {
+    // The visible colour overlay is rendered by the Leaflet GridLayer (heatTileLayer).
+    // This fullscreen canvas is kept permanently hidden (see syncCanvasVisibility), so the
+    // expensive per-pixel raster below would only ever paint into an invisible buffer.
+    // Skip it while hidden to avoid recomputing the whole field on every pan/move.
+    if (this.canvas?.hidden) return;
     if (!anyRawLayerVisible(this)) return;
     if (this.displayMode !== "speed") return;
     const size = this.map.getSize();
@@ -1193,7 +1366,7 @@ class AromeWindOverlay extends L.Layer {
   }
 
   drawHeatRaster(size, metrics = this.overlayRenderMetrics(size)) {
-    const scale = size.x < 700 ? 0.3 : 0.38;
+    const scale = size.x < 700 ? 0.24 : 0.28;
     const width = Math.max(280, Math.round(metrics.cssSize.x * scale));
     const height = Math.max(190, Math.round(metrics.cssSize.y * scale));
     this.heatCanvas.width = width;
@@ -1278,7 +1451,7 @@ class AromeWindOverlay extends L.Layer {
   }
 
   draw() {
-    if (!this.canvas || this.canvas.hidden) return;
+    if (!this.canvas) return;
     const size = this.map.getSize();
     const metrics = this.renderMetrics || this.overlayRenderMetrics(size);
     this.ctx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
@@ -1297,6 +1470,7 @@ class AromeWindOverlay extends L.Layer {
 
   resetParticles() {
     this.particles = [];
+    this.lastParticleDrawTime = null;
     this.lastParticleTime = null;
     if (this.particleCtx && this.map) {
       const size = this.map.getSize();
@@ -1369,11 +1543,11 @@ class AromeWindOverlay extends L.Layer {
   targetParticleCount(size) {
     const area = size.x * size.y;
     const zoomFactor = this.map.getZoom() >= 11 ? 1.08 : 0.82;
-    return Math.max(18, Math.min(1300, Math.round((area / 8200) * zoomFactor * this.particleDensity)));
+    return Math.max(18, Math.min(760, Math.round((area / 8200) * zoomFactor * this.particleDensity)));
   }
 
   seedParticle(size) {
-    for (let attempt = 0; attempt < 18; attempt += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       const x = Math.random() * size.x;
       const y = Math.random() * size.y;
       const field = this.particleFieldAt(this.map.containerPointToLatLng([x, y]));
@@ -1396,17 +1570,22 @@ class AromeWindOverlay extends L.Layer {
 
   animateParticles(timestamp) {
     if (!this.particleCanvas || !this.particleCtx || !this.map || this.particleCanvas.hidden || document.hidden) return;
-    if (this.zoomAnimating) return;
+    if (this.zoomAnimating || timestamp < this.inputPauseUntil) return;
+    if (this.lastParticleDrawTime && timestamp - this.lastParticleDrawTime < 28) return;
+    this.lastParticleDrawTime = timestamp;
     const size = this.map.getSize();
     const ctx = this.particleCtx;
     const previous = this.lastParticleTime ?? timestamp;
     const dt = Math.max(0.35, Math.min(2.4, (timestamp - previous) / 16.7));
     this.lastParticleTime = timestamp;
     const targetCount = this.targetParticleCount(size);
-    while (this.particles.length < targetCount) {
+    const seedBudget = this.particles.length ? 18 : 42;
+    let seeded = 0;
+    while (this.particles.length < targetCount && seeded < seedBudget) {
       const particle = this.seedParticle(size);
       if (!particle) break;
       this.particles.push(particle);
+      seeded += 1;
     }
     if (this.particles.length > targetCount) this.particles.length = targetCount;
 
@@ -1726,7 +1905,95 @@ function tilePixelToLatLng(globalX, globalY, zoom, tileSize = 256) {
   return L.latLng(lat, lng);
 }
 
-function renderWindHeatTile(overlay, coords, tileSizePoint) {
+function prefetchTileRange(map, center, zoom, urlTemplate, cache, maxTiles = 18) {
+  if (!map || !center || !Number.isFinite(zoom)) return;
+  const tileSize = 256;
+  const size = map.getSize();
+  const centerPoint = map.project(center, zoom);
+  const topLeft = centerPoint.subtract(size.divideBy(2));
+  const bottomRight = centerPoint.add(size.divideBy(2));
+  const worldTiles = 2 ** zoom;
+  const minX = Math.floor(topLeft.x / tileSize) - 1;
+  const maxX = Math.floor(bottomRight.x / tileSize) + 1;
+  const minY = Math.max(0, Math.floor(topLeft.y / tileSize) - 1);
+  const maxY = Math.min(worldTiles - 1, Math.floor(bottomRight.y / tileSize) + 1);
+  const centerTileX = Math.floor(centerPoint.x / tileSize);
+  const centerTileY = Math.floor(centerPoint.y / tileSize);
+  const coords = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const wrappedX = ((x % worldTiles) + worldTiles) % worldTiles;
+      coords.push({
+        x: wrappedX,
+        y,
+        distance: Math.abs(x - centerTileX) + Math.abs(y - centerTileY),
+      });
+    }
+  }
+  coords.sort((a, b) => a.distance - b.distance);
+  for (const { x, y } of coords.slice(0, maxTiles)) {
+    const key = `${zoom}:${x}:${y}`;
+    if (cache.has(key)) continue;
+    const image = new Image();
+    image.decoding = "async";
+    cache.set(key, image);
+    if (cache.size > 420) cache.delete(cache.keys().next().value);
+    image.src = urlTemplate.replace("{z}", zoom).replace("{x}", x).replace("{y}", y);
+  }
+}
+
+function viewportTileCoords(map, center, zoom, tileSize = 256, maxTiles = 18) {
+  if (!map || !center || !Number.isFinite(zoom)) return [];
+  const size = map.getSize();
+  const centerPoint = map.project(center, zoom);
+  const topLeft = centerPoint.subtract(size.divideBy(2));
+  const bottomRight = centerPoint.add(size.divideBy(2));
+  const worldTiles = 2 ** zoom;
+  const minX = Math.floor(topLeft.x / tileSize) - 1;
+  const maxX = Math.floor(bottomRight.x / tileSize) + 1;
+  const minY = Math.max(0, Math.floor(topLeft.y / tileSize) - 1);
+  const maxY = Math.min(worldTiles - 1, Math.floor(bottomRight.y / tileSize) + 1);
+  const centerTileX = Math.floor(centerPoint.x / tileSize);
+  const centerTileY = Math.floor(centerPoint.y / tileSize);
+  const coords = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      coords.push({
+        z: zoom,
+        x: ((x % worldTiles) + worldTiles) % worldTiles,
+        y,
+        distance: Math.abs(x - centerTileX) + Math.abs(y - centerTileY),
+      });
+    }
+  }
+  return coords.sort((a, b) => a.distance - b.distance).slice(0, maxTiles);
+}
+
+function heatTileCacheKey(overlay, coords, tileSize) {
+  const layer = rawModelKey(overlay);
+  const signature = overlay.rawLayerPayloadSignatures?.[layer] || modelPayloadSignature(rawModelForKey(overlay, layer));
+  return [
+    layer,
+    signature,
+    overlay.activeLeadHour,
+    overlay.displayMode,
+    Math.round(overlay.scaleMaxKnots),
+    tileSize,
+    coords.z,
+    coords.x,
+    coords.y,
+  ].join(":");
+}
+
+function cloneCanvas(source) {
+  const target = document.createElement("canvas");
+  target.width = source.width;
+  target.height = source.height;
+  target.getContext("2d", { alpha: true }).drawImage(source, 0, 0);
+  return target;
+}
+
+function createWindHeatTileCanvas(overlay, tileSizePoint) {
   const tileSize = tileSizePoint?.x || 256;
   const ratio = overlay.canvasPixelRatio?.() || Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const tile = document.createElement("canvas");
@@ -1737,11 +2004,17 @@ function renderWindHeatTile(overlay, coords, tileSizePoint) {
   tile.style.height = `${tileSize}px`;
   const ctx = tile.getContext("2d", { alpha: true });
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  return { tile, ctx, ratio, tileSize };
+}
 
+function drawWindHeatTile(tileState, overlay, coords) {
+  const { tile, ctx, ratio, tileSize, cacheKey } = tileState;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, tileSize, tileSize);
   if (!overlay.heatLayerVisible?.()) return tile;
 
-  const pad = 28;
-  const sampleScale = tileSize < 300 ? 0.62 : 0.5;
+  const pad = 44;
+  const sampleScale = tileSize < 300 ? 0.34 : 0.26;
   const sourceCssSize = tileSize + pad * 2;
   const renderSize = Math.max(96, Math.ceil(sourceCssSize * sampleScale));
   const source = document.createElement("canvas");
@@ -1772,27 +2045,95 @@ function renderWindHeatTile(overlay, coords, tileSizePoint) {
       image.data[offset] = render.rgb[0];
       image.data[offset + 1] = render.rgb[1];
       image.data[offset + 2] = render.rgb[2];
-      image.data[offset + 3] = Math.round(
-        Math.min(236, render.alpha) *
-          (field.domainFeather ?? 1) *
-          renderAlpha
-      );
+      image.data[offset + 3] = Math.round(Math.min(220, render.alpha) * (field.domainFeather ?? 1) * renderAlpha);
     }
   }
 
   sourceCtx.putImageData(image, 0, 0);
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
-  ctx.filter = "blur(6px) saturate(1.45) contrast(1.18)";
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, -pad, -pad, sourceCssSize, sourceCssSize);
   ctx.restore();
+  if (cacheKey) {
+    overlay.heatTileRenderCache.set(cacheKey, cloneCanvas(tile));
+    if (overlay.heatTileRenderCache.size > 96) {
+      overlay.heatTileRenderCache.delete(overlay.heatTileRenderCache.keys().next().value);
+    }
+  }
   return tile;
+}
+
+function drawCachedWindHeatTile(tileState, cached) {
+  tileState.ctx.setTransform(1, 0, 0, 1, 0, 0);
+  tileState.ctx.clearRect(0, 0, tileState.tile.width, tileState.tile.height);
+  tileState.ctx.drawImage(cached, 0, 0);
+}
+
+function prewarmWindHeatTiles(overlay, center, zoom, maxTiles = 6) {
+  if (!overlay.map || !overlay.heatLayerVisible?.()) return;
+  const coordsList = viewportTileCoords(overlay.map, center, zoom, 256, maxTiles);
+  const startedAt = performance.now();
+  const renderBudget = overlay.zoomAnimating ? 5 : 9;
+  const tileBudget = overlay.zoomAnimating ? 2 : 4;
+  let rendered = 0;
+  for (const coords of coordsList) {
+    const tileState = createWindHeatTileCanvas(overlay, L.point(256, 256));
+    tileState.cacheKey = heatTileCacheKey(overlay, coords, tileState.tileSize);
+    if (overlay.heatTileRenderCache.has(tileState.cacheKey) || overlay.heatTilePrewarmKeys.has(tileState.cacheKey)) continue;
+    overlay.heatTilePrewarmKeys.add(tileState.cacheKey);
+    try {
+      drawWindHeatTile(tileState, overlay, coords);
+    } catch (error) {
+      console.debug("Wind heat tile prewarm failed", error);
+    } finally {
+      overlay.heatTilePrewarmKeys.delete(tileState.cacheKey);
+    }
+    rendered += 1;
+    if (rendered >= tileBudget || performance.now() - startedAt > renderBudget) break;
+  }
+}
+
+function scheduleWindHeatTileRender(tileState, overlay, coords, done) {
+  const render = () => {
+    if (overlay.zoomAnimating || performance.now() < (overlay.inputPauseUntil || 0)) {
+      requestAnimationFrame(render);
+      return;
+    }
+    try {
+      const cached = tileState.cacheKey ? overlay.heatTileRenderCache.get(tileState.cacheKey) : null;
+      if (cached) {
+        drawCachedWindHeatTile(tileState, cached);
+        if (done) done(null, tileState.tile);
+        return;
+      }
+      drawWindHeatTile(tileState, overlay, coords);
+      if (done) done(null, tileState.tile);
+    } catch (error) {
+      if (done) done(error, tileState.tile);
+    }
+  };
+  if (window.requestIdleCallback) {
+    window.requestIdleCallback(render, { timeout: 220 });
+  } else {
+    window.setTimeout(render, 0);
+  }
 }
 
 function createWindHeatTileLayer(overlay) {
   const WindHeatLayer = L.GridLayer.extend({
-    createTile(coords) {
-      return renderWindHeatTile(overlay, coords, this.getTileSize());
+    createTile(coords, done) {
+      const tileState = createWindHeatTileCanvas(overlay, this.getTileSize());
+      tileState.cacheKey = heatTileCacheKey(overlay, coords, tileState.tileSize);
+      const cached = overlay.heatTileRenderCache.get(tileState.cacheKey);
+      if (cached) {
+        drawCachedWindHeatTile(tileState, cached);
+        if (done) queueMicrotask(() => done(null, tileState.tile));
+        return tileState.tile;
+      }
+      scheduleWindHeatTileRender(tileState, overlay, coords, done);
+      return tileState.tile;
     },
     _updateOpacity() {
       if (!this._map) return;
@@ -1804,7 +2145,7 @@ function createWindHeatTileLayer(overlay) {
       for (const key in this._tiles) {
         const tile = this._tiles[key];
         if (!tile?.el) continue;
-        const visible = Boolean(tile.current || (loading && tile.retain));
+        const visible = Boolean(tile.current);
         tile.el.style.opacity = visible ? "1" : "0";
         tile.el.style.visibility = visible ? "visible" : "hidden";
       }
@@ -1819,7 +2160,7 @@ function createWindHeatTileLayer(overlay) {
     opacity: 1,
     updateWhenZooming: false,
     updateWhenIdle: false,
-    keepBuffer: 3,
+    keepBuffer: 2,
     className: "wind-heat-grid",
   });
 }
@@ -2029,10 +2370,13 @@ function buildRasterTileState(payload) {
   };
 }
 
+function rasterStepKeyForState(state, leadHour) {
+  const match = state?.steps?.find((step) => Number(step.lead_hour) === Number(leadHour));
+  return match?.key || `h${String(Number(leadHour || 0)).padStart(2, "0")}`;
+}
+
 function rasterStepKey(overlay) {
-  const lead = overlay.activeLeadHour;
-  const match = overlay.rasterTiles?.steps?.find((step) => Number(step.lead_hour) === Number(lead));
-  return match?.key || `h${String(Number(lead || 0)).padStart(2, "0")}`;
+  return rasterStepKeyForState(overlay.rasterTiles, overlay.activeLeadHour);
 }
 
 function rasterMode(overlay) {
@@ -2040,19 +2384,27 @@ function rasterMode(overlay) {
   return overlay.displayMode;
 }
 
-function rasterDisplayMinZoom(overlay) {
-  const nativeMinZoom = Math.min(...overlay.rasterTiles.zooms);
-  return overlay.windNinjaCorsicaTiles ? Math.max(nativeMinZoom, 12) : nativeMinZoom;
+function rasterDisplayMinZoom(state) {
+  return Math.min(...state.zooms);
+}
+
+// Availability against a specific model's tile state — independent of which state is currently
+// pinned to overlay.rasterTiles, so heatLayerVisible() can probe the active model directly.
+function rasterStateAvailable(overlay, state) {
+  if (!state || !overlay.map) return false;
+  if (overlay.map.getZoom() < rasterDisplayMinZoom(state)) return false;
+  const mode = rasterMode(overlay);
+  if (!state.modes.has(mode)) return false;
+  const key = rasterStepKeyForState(state, overlay.activeLeadHour);
+  return state.steps.some((step) => step.key === key);
+}
+
+function activeModelRasterAvailable(overlay) {
+  return rasterStateAvailable(overlay, overlay.rasterTilesByModel?.[rawModelKey(overlay)]);
 }
 
 function isRasterTileAvailable(overlay) {
-  if (!overlay.rasterTiles || !overlay.map) return false;
-  const minZoom = rasterDisplayMinZoom(overlay);
-  if (overlay.map.getZoom() < minZoom) return false;
-  const mode = rasterMode(overlay);
-  if (!overlay.rasterTiles.modes.has(mode)) return false;
-  const key = rasterStepKey(overlay);
-  return overlay.rasterTiles.steps.some((step) => step.key === key);
+  return rasterStateAvailable(overlay, overlay.rasterTiles);
 }
 
 function isRasterTileActive(overlay) {
@@ -2060,7 +2412,19 @@ function isRasterTileActive(overlay) {
 }
 
 function updateRasterTileLayer(overlay) {
-  if (!overlay.map || !overlay.rasterTiles) return;
+  if (!overlay.map) return;
+  // Pin overlay.rasterTiles to the active model and tear down any other model's live layer.
+  const activeModel = rawModelKey(overlay);
+  for (const [model, state] of Object.entries(overlay.rasterTilesByModel || {})) {
+    if (model !== activeModel && state.activeLayer) {
+      overlay.map.removeLayer(state.activeLayer);
+      state.activeLayer = null;
+      state.activeKey = null;
+    }
+  }
+  overlay.rasterTiles = overlay.rasterTilesByModel?.[activeModel] || null;
+  if (!overlay.rasterTiles) return;
+
   if (!isRasterTileAvailable(overlay)) {
     if (overlay.rasterTiles.activeLayer) {
       overlay.map.removeLayer(overlay.rasterTiles.activeLayer);
@@ -2077,11 +2441,13 @@ function updateRasterTileLayer(overlay) {
   const url = versionedDataUrl(overlay.rasterTiles.urlTemplate.replace("{step}", step).replace("{mode}", mode));
   overlay.rasterTiles.activeLayer = L.tileLayer(url, {
     bounds: overlay.rasterTiles.bounds || undefined,
-    minZoom: rasterDisplayMinZoom(overlay),
+    minZoom: rasterDisplayMinZoom(overlay.rasterTiles),
     maxNativeZoom: Math.max(...overlay.rasterTiles.zooms),
     maxZoom: 16,
-    opacity: 0.86,
-    pane: "overlayPane",
+    opacity: overlay.rasterTiles.opacity ?? 0.86,
+    keepBuffer: 2,
+    updateWhenZooming: false,
+    pane: "windHeatPane",
   }).addTo(overlay.map);
   overlay.rasterTiles.activeKey = activeKey;
 }
@@ -2831,9 +3197,44 @@ async function refreshWindNinja50mManifest(payload, overlay) {
   return true;
 }
 
+function rasterManifestSignature(state) {
+  if (!state) return "";
+  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileCount || 0}`;
+}
+
+// Load the pre-baked colour-tile manifest for each raw model (./tiles/<model>/manifest.json).
+// Missing manifests are fine — that model simply falls back to the live JS heat overlay.
+async function loadModelRasterManifests(overlay) {
+  if (!RASTER_ENABLED) return false;
+  let changed = false;
+  await Promise.all(
+    RAW_LAYER_KEYS.map(async (model) => {
+      const payload = await fetchOptionalJson(modelRasterManifestUrl(model), true);
+      const state = buildRasterTileState(payload);
+      if (!state) return;
+      if (rasterManifestSignature(state) === rasterManifestSignature(overlay.rasterTilesByModel[model])) return;
+      const previous = overlay.rasterTilesByModel[model];
+      if (previous?.activeLayer && overlay.map) overlay.map.removeLayer(previous.activeLayer);
+      overlay.rasterTilesByModel[model] = state;
+      changed = true;
+    })
+  );
+  if (changed) {
+    overlay.refreshTileLayers();
+    overlay.redrawHeatLayer();
+    refreshCoverageStatus(overlay);
+  }
+  return changed;
+}
+
 function startProgressiveWindNinjaPolling(payload, overlay) {
   const poll = async () => {
     if (document.hidden) return;
+    try {
+      await loadModelRasterManifests(overlay);
+    } catch (error) {
+      console.debug("Model raster manifest refresh failed", error);
+    }
     try {
       await refreshWindNinja50mManifest(payload, overlay);
     } catch (error) {
@@ -3959,13 +4360,19 @@ async function main() {
     maxZoom: 16,
     zoomControl: false,
     attributionControl: false,
+    fadeAnimation: false,
+    wheelDebounceTime: 18,
+    wheelPxPerZoomLevel: 48,
   });
 
-  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+  L.tileLayer(BASEMAP_TILE_URL, {
     maxZoom: 19,
+    keepBuffer: 4,
+    updateWhenZooming: true,
+    updateInterval: 80,
   }).addTo(map);
 
-  L.control.zoom({ position: "topleft" }).addTo(map);
+  const zoomControl = L.control.zoom({ position: "topleft" }).addTo(map);
 
   const payload = await fetchInitialForecastPayload();
   if (!payload) throw new Error("Unable to load any Wind2D forecast model");
@@ -3976,6 +4383,14 @@ async function main() {
   overlay.stepIndex = chooseInitialForecastIndex(payload);
   overlay.activeLeadHour = Number(payload.forecast_steps[overlay.stepIndex]?.lead_hour ?? overlay.activeLeadHour);
   applyPreferredForecastLayer(overlay);
+  zoomControl.getContainer()?.addEventListener("pointerdown", () => overlay.prepareZoomInput(), {
+    capture: true,
+    passive: true,
+  });
+  map.getContainer()?.addEventListener("wheel", () => overlay.prepareZoomInput(110), {
+    capture: true,
+    passive: true,
+  });
   window.CORSEWIND_AROME_OVERLAY = overlay;
   window.CORSEWIND_AROME_PAYLOAD = payload;
   overlay.addTo(map);
@@ -3992,6 +4407,9 @@ async function main() {
   updateReadout(payload, overlay);
   scheduleOptionalRawModelPreload(overlay);
   window.setTimeout(() => {
+    loadModelRasterManifests(overlay).catch((error) => {
+      console.debug("Model raster manifest load failed", error);
+    });
     refreshWindNinja50mManifest(payload, overlay).catch((error) => {
       console.debug("WindNinja initial manifest refresh failed", error);
     });

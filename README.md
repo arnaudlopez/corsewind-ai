@@ -201,6 +201,8 @@ if a compressed file is missing or unsupported.
 
 See `docs/forecast_update_engine.md` for the full update process, selected forecast hours, generated artifacts, and Beacon Live handoff contract.
 
+See `docs/corsewind_ml_nowcasting_blueprint.md` for the ML nowcasting blueprint: SAPHIR-inspired methodology, observations/NWP features, windsurf-focused metrics, model candidates, and operational roadmap.
+
 See `docs/qes_winds_benchmark.md` for the optional QES-Winds GPU benchmark against the current WindNinja 50 m pipeline on Ajaccio and Bonifacio test zones.
 
 See `docs/fasteddy_benchmark.md` for the optional FastEddy GPU LES smoke benchmark on the same Ajaccio and Bonifacio zones.

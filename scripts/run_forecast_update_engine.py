@@ -558,6 +558,15 @@ def compress_wind2d_json_command() -> tuple[str, ...]:
     return ("scripts/compress_wind2d_json.py",)
 
 
+# Models whose colour overlay is served as pre-baked raster tiles (Google-Maps style) so the
+# Wind2D client renders instantly instead of computing the field per pixel in JavaScript.
+RASTER_TILE_MODELS = ("arome", "aromepi", "moloch", "icon2i")
+
+
+def model_raster_tiles_command(model: str) -> tuple[str, ...]:
+    return ("scripts/build_model_raster_tiles.py", "--model", model)
+
+
 def is_aromepi_waiting_result(result: dict[str, Any]) -> bool:
     output = f"{result.get('stdout_tail') or ''}\n{result.get('stderr_tail') or ''}"
     waiting_markers = (
@@ -1168,6 +1177,11 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     any_source_changed = any(bool(item.get("changed")) for item in status["sources"].values())
     if any_source_ran or any_source_changed or args.dry_run:
         commands.append(run_command(compress_wind2d_json_command(), args.dry_run))
+    # Re-bake the colour raster tiles for any model whose run changed, so the fast pre-baked
+    # overlay stays in sync with the freshly published forecast JSON.
+    for source in RASTER_TILE_MODELS:
+        if args.dry_run or status["sources"].get(source, {}).get("changed"):
+            commands.append(run_command(model_raster_tiles_command(source), args.dry_run))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
