@@ -4360,9 +4360,15 @@ async function main() {
     maxZoom: 16,
     zoomControl: false,
     attributionControl: false,
-    fadeAnimation: false,
-    wheelDebounceTime: 18,
-    wheelPxPerZoomLevel: 48,
+    // Google-Maps-style smooth zoom: continuous (fractional) levels with a quick eased glide
+    // and progressive tile fade-in — while staying responsive. wheelPxPerZoomLevel must stay
+    // low (≈ default 60) so one scroll/trackpad gesture zooms a satisfying amount; high values
+    // make the wheel feel slow and laborious.
+    fadeAnimation: true,
+    zoomSnap: 0,
+    zoomDelta: 0.8,
+    wheelDebounceTime: 40,
+    wheelPxPerZoomLevel: 60,
   });
 
   L.tileLayer(BASEMAP_TILE_URL, {
