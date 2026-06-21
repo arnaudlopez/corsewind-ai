@@ -134,6 +134,8 @@ class AromeWindOverlay extends L.Layer {
     this.inputPauseUntil = 0;
     this.inputPauseTimer = null;
     this.scaleRedrawTimer = null;
+    this.motionActive = false;
+    this.motionShowTimer = null;
     this.renderView = null;
     this.renderMetrics = null;
     this.shell = null;
@@ -344,6 +346,8 @@ class AromeWindOverlay extends L.Layer {
     this.syncParticleVisibility();
     this.shell.appendChild(this.particleCanvas);
     map.on("move resize", this.reset, this);
+    map.on("movestart zoomstart", this.onMotionStart, this);
+    map.on("moveend zoomend", this.onMotionEnd, this);
     map.on("zoomstart", this.onZoomStart, this);
     map.on("zoomanim", this.onZoomAnim, this);
     map.on("zoom", this.onZoomProgress, this);
@@ -361,6 +365,8 @@ class AromeWindOverlay extends L.Layer {
 
   onRemove(map) {
     map.off("move resize", this.reset, this);
+    map.off("movestart zoomstart", this.onMotionStart, this);
+    map.off("moveend zoomend", this.onMotionEnd, this);
     map.off("zoomstart", this.onZoomStart, this);
     map.off("zoomanim", this.onZoomAnim, this);
     map.off("zoom", this.onZoomProgress, this);
@@ -382,6 +388,7 @@ class AromeWindOverlay extends L.Layer {
     }
     if (this.inputPauseTimer) window.clearTimeout(this.inputPauseTimer);
     if (this.scaleRedrawTimer) window.clearTimeout(this.scaleRedrawTimer);
+    if (this.motionShowTimer) window.clearTimeout(this.motionShowTimer);
     for (const state of Object.values(this.rasterTilesByModel || {})) {
       if (state.activeLayer) map.removeLayer(state.activeLayer);
     }
@@ -445,6 +452,32 @@ class AromeWindOverlay extends L.Layer {
     this.shell?.classList.add("wind-overlay-zooming");
     this.shell?.classList.toggle("wind-overlay-zoom-transition", mode === "animated");
     this.setOverlayTransform(L.point(0, 0), 1);
+  }
+
+  onMotionStart() {
+    if (this.motionShowTimer) {
+      window.clearTimeout(this.motionShowTimer);
+      this.motionShowTimer = null;
+    }
+    if (!this.motionActive) {
+      this.motionActive = true;
+      this.shell?.classList.add("wind-overlay-motion");
+    }
+  }
+
+  onMotionEnd() {
+    // Resume particles a beat after the map settles, so continuous gestures (and touch inertia,
+    // which keeps firing move events) don't flicker the canvas on/off mid-interaction.
+    if (this.motionShowTimer) window.clearTimeout(this.motionShowTimer);
+    this.motionShowTimer = window.setTimeout(() => {
+      this.motionShowTimer = null;
+      this.motionActive = false;
+      this.shell?.classList.remove("wind-overlay-motion");
+      this.lastParticleDrawTime = null;
+      this.lastParticleTime = null;
+      // Reseed particles for the settled view (skipped during the gesture while hidden).
+      if (this.particleCanvas && !this.particleCanvas.hidden) this.resetParticles();
+    }, 200);
   }
 
   prepareZoomInput(durationMs = 130) {
@@ -626,13 +659,18 @@ class AromeWindOverlay extends L.Layer {
     const metrics = this.overlayRenderMetrics(size);
     this.renderMetrics = metrics;
     const ratio = metrics.pixelRatio;
-    this.canvas.style.left = `${-metrics.pad.x}px`;
-    this.canvas.style.top = `${-metrics.pad.y}px`;
-    this.canvas.width = Math.ceil(metrics.cssSize.x * ratio);
-    this.canvas.height = Math.ceil(metrics.cssSize.y * ratio);
-    this.canvas.style.width = `${metrics.cssSize.x}px`;
-    this.canvas.style.height = `${metrics.cssSize.y}px`;
-    this.ctx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
+    // The heat canvas is permanently hidden in the tile-based overlay path. Reallocating its
+    // full-screen backing store (canvas.width = …) on every move/pan frame is pure dead work and
+    // a real source of mobile pan jank — skip it entirely while hidden.
+    if (!this.canvas.hidden) {
+      this.canvas.style.left = `${-metrics.pad.x}px`;
+      this.canvas.style.top = `${-metrics.pad.y}px`;
+      this.canvas.width = Math.ceil(metrics.cssSize.x * ratio);
+      this.canvas.height = Math.ceil(metrics.cssSize.y * ratio);
+      this.canvas.style.width = `${metrics.cssSize.x}px`;
+      this.canvas.style.height = `${metrics.cssSize.y}px`;
+      this.ctx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
+    }
     this.heatDirty = true;
     if (this.particleCanvas) {
       const particleWidth = Math.ceil(metrics.cssSize.x * ratio);
@@ -647,12 +685,14 @@ class AromeWindOverlay extends L.Layer {
       this.particleCanvas.style.width = `${metrics.cssSize.x}px`;
       this.particleCanvas.style.height = `${metrics.cssSize.y}px`;
       this.particleCtx.setTransform(ratio, 0, 0, ratio, metrics.pad.x * ratio, metrics.pad.y * ratio);
-      if (!options.preserveParticles || particleSizeChanged) {
+      // While a gesture is active the particle canvas is hidden, so don't reseed it every move
+      // frame — onMotionEnd reseeds once the map settles.
+      if ((!options.preserveParticles || particleSizeChanged) && !this.motionActive) {
         this.particleCtx.clearRect(-metrics.pad.x, -metrics.pad.y, metrics.cssSize.x, metrics.cssSize.y);
         this.resetParticles();
       }
     }
-    this.draw();
+    if (!this.canvas.hidden) this.draw();
     this.captureRenderView(metrics);
   }
 
@@ -1570,7 +1610,7 @@ class AromeWindOverlay extends L.Layer {
 
   animateParticles(timestamp) {
     if (!this.particleCanvas || !this.particleCtx || !this.map || this.particleCanvas.hidden || document.hidden) return;
-    if (this.zoomAnimating || timestamp < this.inputPauseUntil) return;
+    if (this.zoomAnimating || this.motionActive || timestamp < this.inputPauseUntil) return;
     if (this.lastParticleDrawTime && timestamp - this.lastParticleDrawTime < 28) return;
     this.lastParticleDrawTime = timestamp;
     const size = this.map.getSize();
@@ -2445,7 +2485,7 @@ function updateRasterTileLayer(overlay) {
     maxNativeZoom: Math.max(...overlay.rasterTiles.zooms),
     maxZoom: 16,
     opacity: overlay.rasterTiles.opacity ?? 0.86,
-    keepBuffer: 2,
+    keepBuffer: 4,
     updateWhenZooming: false,
     pane: "windHeatPane",
   }).addTo(overlay.map);

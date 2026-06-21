@@ -1046,6 +1046,15 @@ body {
   opacity: 1;
 }
 
+/* During any pan/zoom/inertia, hide the full-screen particle canvas. Its mix-blend-mode: screen
+   forces a GPU recomposite of the whole viewport every frame, which stutters the gesture on
+   mobile — exactly the difference vs the opaque satellite tiles. We resume it ~200ms after the
+   map settles (see onMotionStart/onMotionEnd), the way Google Maps pauses dynamic overlays
+   during gestures. visibility (not display) keeps the GPU layer so there's no recreation flicker. */
+.app-shell.wind-overlay-motion .wind-particle-canvas {
+  visibility: hidden;
+}
+
 /* Keep the per-step zoom animation short: continuous wheel/trackpad zoom fires a new step
    every ~30ms, so a long transition would restart before finishing and judder ("hachures").
    A short eased step chains into smooth continuous motion instead. */
