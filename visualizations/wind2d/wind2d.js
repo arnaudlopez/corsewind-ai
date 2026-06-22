@@ -4043,11 +4043,96 @@ function buildForecastButtons(payload, overlay) {
     });
     track.appendChild(button);
   });
+  enableTimelineDragScroll(track);
   if (activeButton) {
     requestAnimationFrame(() => {
       activeButton.scrollIntoView({ block: "nearest", inline: "center" });
     });
   }
+}
+
+// Let the forecast timeline be dragged left/right with the mouse (it overflows when a model has
+// many échéances, e.g. MOLOCH). Touch keeps Leaflet/native horizontal scroll (touch-action: pan-x),
+// so we only hijack mouse pointers here. A drag past a few px suppresses the click that would
+// otherwise select a step.
+function enableTimelineDragScroll(track) {
+  let dragging = false;
+  let startX = 0;
+  let startScroll = 0;
+  let moved = false;
+  let pointerId = null;
+
+  track.addEventListener("pointerdown", (event) => {
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+    dragging = true;
+    moved = false;
+    track._suppressClick = false;
+    startX = event.clientX;
+    startScroll = track.scrollLeft;
+    pointerId = event.pointerId;
+    track.classList.add("dragging");
+  });
+
+  track.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    const dx = event.clientX - startX;
+    if (!moved && Math.abs(dx) > 4) {
+      moved = true;
+      track.setPointerCapture?.(pointerId);
+    }
+    if (moved) {
+      track.scrollLeft = startScroll - dx;
+      event.preventDefault();
+    }
+  });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    track.classList.remove("dragging");
+    try {
+      if (pointerId !== null) track.releasePointerCapture?.(pointerId);
+    } catch {
+      /* pointer already released */
+    }
+    if (moved) {
+      // The click that fires right after this pointerup is swallowed below; auto-clear on the next
+      // task so a drag that produces no click can never eat a later legitimate selection click.
+      track._suppressClick = true;
+      window.setTimeout(() => {
+        track._suppressClick = false;
+      }, 0);
+    }
+  };
+  track.addEventListener("pointerup", endDrag);
+  track.addEventListener("pointercancel", endDrag);
+
+  // A drag ends with a click event on the step under the cursor — swallow it so dragging doesn't
+  // also change the selected échéance.
+  track.addEventListener(
+    "click",
+    (event) => {
+      if (track._suppressClick) {
+        event.stopPropagation();
+        event.preventDefault();
+        track._suppressClick = false;
+      }
+    },
+    true
+  );
+
+  // Mouse wheel over the timeline scrolls it horizontally (the strip is outside the map, so this
+  // never triggers map zoom).
+  track.addEventListener(
+    "wheel",
+    (event) => {
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      track.scrollLeft += delta;
+      event.preventDefault();
+    },
+    { passive: false }
+  );
 }
 
 function bindMapReadout(map, overlay) {

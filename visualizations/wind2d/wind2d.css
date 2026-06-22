@@ -751,6 +751,15 @@ body {
   padding: 0 2px 3px;
   scrollbar-width: none;
   scroll-snap-type: x proximity;
+  cursor: grab;
+  touch-action: pan-x;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.forecast-track.dragging {
+  cursor: grabbing;
+  scroll-snap-type: none;
 }
 
 .forecast-track::-webkit-scrollbar {
