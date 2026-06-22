@@ -567,6 +567,23 @@ def model_raster_tiles_command(model: str) -> tuple[str, ...]:
     return ("scripts/build_model_raster_tiles.py", "--model", model)
 
 
+def bootstrap_raster_tiles() -> None:
+    """On startup, pre-bake colour tiles for any model whose forecast JSON already exists but
+    whose tiles are missing (e.g. a fresh deploy). Runs each as a detached background process so
+    it never blocks the poll loop or the container healthcheck — the web server serves each
+    model's manifest as soon as it is written, and the client picks it up on its next poll.
+    Steady-state regeneration on run changes is handled synchronously inside poll_once."""
+    for model in RASTER_TILE_MODELS:
+        layer_path = SOURCE_LAYER_PATHS.get(model)
+        manifest_path = ROOT / "visualizations/wind2d/tiles" / model / "manifest.json"
+        if layer_path and layer_path.exists() and not manifest_path.exists():
+            print(f"bootstrapping missing raster tiles for {model} (background)", flush=True)
+            subprocess.Popen(  # noqa: S603 - fixed, trusted command
+                [sys.executable, *model_raster_tiles_command(model)],
+                cwd=ROOT,
+            )
+
+
 def is_aromepi_waiting_result(result: dict[str, Any]) -> bool:
     output = f"{result.get('stdout_tail') or ''}\n{result.get('stderr_tail') or ''}"
     waiting_markers = (
@@ -1398,6 +1415,8 @@ def main() -> None:
     args.lock_file = resolve_path(args.lock_file)
 
     acquire_lock(args.lock_file, args.lock_stale_after_sec)
+    if not args.dry_run:
+        bootstrap_raster_tiles()
     try:
         while not SHUTDOWN_REQUESTED:
             state = load_state(args.state_file)
