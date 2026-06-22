@@ -567,17 +567,31 @@ def model_raster_tiles_command(model: str) -> tuple[str, ...]:
     return ("scripts/build_model_raster_tiles.py", "--model", model)
 
 
+def raster_manifest_needs_rebuild(manifest_path: Path) -> bool:
+    if not manifest_path.exists():
+        return True
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    steps = manifest.get("steps") or []
+    keys = [step.get("key") for step in steps if step.get("key")]
+    return not keys or len(keys) != len(set(keys))
+
+
 def bootstrap_raster_tiles() -> None:
     """On startup, pre-bake colour tiles for any model whose forecast JSON already exists but
-    whose tiles are missing (e.g. a fresh deploy). Runs each as a detached background process so
-    it never blocks the poll loop or the container healthcheck — the web server serves each
-    model's manifest as soon as it is written, and the client picks it up on its next poll.
+    whose tiles are missing or whose manifest is invalid (e.g. a fresh deploy or an older
+    AROME-PI manifest with duplicate sub-hourly step keys). Runs each as a detached background
+    process so it never blocks the poll loop or the container healthcheck — the web server serves
+    each model's manifest as soon as it is written, and the client picks it up on its next poll.
     Steady-state regeneration on run changes is handled synchronously inside poll_once."""
     for model in RASTER_TILE_MODELS:
         layer_path = SOURCE_LAYER_PATHS.get(model)
         manifest_path = ROOT / "visualizations/wind2d/tiles" / model / "manifest.json"
-        if layer_path and layer_path.exists() and not manifest_path.exists():
-            print(f"bootstrapping missing raster tiles for {model} (background)", flush=True)
+        if layer_path and layer_path.exists() and raster_manifest_needs_rebuild(manifest_path):
+            reason = "missing" if not manifest_path.exists() else "invalid"
+            print(f"bootstrapping {reason} raster tiles for {model} (background)", flush=True)
             subprocess.Popen(  # noqa: S603 - fixed, trusted command
                 [sys.executable, *model_raster_tiles_command(model)],
                 cwd=ROOT,

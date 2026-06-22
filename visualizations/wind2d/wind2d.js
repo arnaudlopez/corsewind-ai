@@ -3239,7 +3239,10 @@ async function refreshWindNinja50mManifest(payload, overlay) {
 
 function rasterManifestSignature(state) {
   if (!state) return "";
-  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileCount || 0}`;
+  const steps = (state.steps || [])
+    .map((step) => `${step.key || ""}:${step.lead_hour ?? ""}:${step.lead_minutes ?? ""}:${step.valid_time_utc || ""}`)
+    .join("|");
+  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileCount || 0}:${steps}`;
 }
 
 // Load the pre-baked colour-tile manifest for each raw model (./tiles/<model>/manifest.json).

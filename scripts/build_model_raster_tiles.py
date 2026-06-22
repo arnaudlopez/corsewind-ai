@@ -142,6 +142,24 @@ def render_tile(speed_kt: np.ndarray, scale_max_kt: float, render_alpha: float) 
     return Image.fromarray(rgba, mode="RGBA")
 
 
+def normalise_lead_hour(step: dict[str, Any]) -> int | float:
+    lead_hour = float(step["lead_hour"])
+    return int(lead_hour) if lead_hour.is_integer() else round(lead_hour, 4)
+
+
+def step_key_for_step(step: dict[str, Any]) -> str:
+    if step.get("lead_minutes") is not None:
+        lead_minutes = int(round(float(step["lead_minutes"])))
+    else:
+        lead_minutes = int(round(float(step["lead_hour"]) * 60))
+    sign = "-" if lead_minutes < 0 else ""
+    absolute_minutes = abs(lead_minutes)
+    hours, minutes = divmod(absolute_minutes, 60)
+    if minutes == 0:
+        return f"{sign}h{hours:02d}"
+    return f"{sign}h{hours:02d}m{minutes:02d}"
+
+
 def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 2) -> dict[str, Any]:
     spec = MODELS[model]
     json_path = WIND2D / spec["json"]
@@ -167,10 +185,15 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 
     px, py = np.meshgrid(grid, grid)
 
     manifest_steps: list[dict[str, Any]] = []
+    seen_step_keys: set[str] = set()
     tile_count = 0
     for step in steps:
-        lead_hour = int(step["lead_hour"])
-        step_key = f"h{lead_hour:02d}"
+        lead_hour = normalise_lead_hour(step)
+        step_key = step_key_for_step(step)
+        if step_key in seen_step_keys:
+            valid_time = step.get("valid_time_utc") or "unknown valid time"
+            raise RuntimeError(f"Duplicate raster step key {step_key!r} for {model} at {valid_time}")
+        seen_step_keys.add(step_key)
         speed_ms = np.array(step["speed_ms"], dtype=np.float32)
         for z in zooms:
             x_range, y_range = tile_ranges(bbox, z)
@@ -185,7 +208,14 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 
                     path.parent.mkdir(parents=True, exist_ok=True)
                     image.save(path, compress_level=2)
                     tile_count += 1
-        manifest_steps.append({"key": step_key, "lead_hour": lead_hour, "valid_time_utc": step.get("valid_time_utc")})
+        manifest_steps.append(
+            {
+                "key": step_key,
+                "lead_hour": lead_hour,
+                "lead_minutes": step.get("lead_minutes"),
+                "valid_time_utc": step.get("valid_time_utc"),
+            }
+        )
 
     manifest = {
         "format": "corsewind.model.raster_tiles.v1",
