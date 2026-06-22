@@ -3261,7 +3261,7 @@ function rasterManifestSignature(state) {
   const steps = (state.steps || [])
     .map((step) => `${step.key || ""}:${step.lead_hour ?? ""}:${step.lead_minutes ?? ""}:${step.valid_time_utc || ""}`)
     .join("|");
-  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileFormat || ""}:${state.tileCount || 0}:${steps}`;
+  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileFormat || ""}:${state.tileSet || ""}:${state.tileCount || 0}:${steps}`;
 }
 
 // Load the pre-baked colour-tile manifest for each raw model (./tiles/<model>/manifest.json).

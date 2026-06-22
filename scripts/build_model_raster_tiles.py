@@ -10,7 +10,7 @@ The colour ramp and per-pixel alpha intentionally mirror the client (colorArray 
 branch of renderFieldColor + drawWindHeatTile), so pre-baked tiles match the legend exactly.
 
 Output layout:
-    visualizations/wind2d/tiles/<model>/<step>/<mode>/<z>/<x>/<y>.png
+    visualizations/wind2d/tiles/<model>/_sets/<tile-set>/<step>/<mode>/<z>/<x>/<y>.<format>
     visualizations/wind2d/tiles/<model>/manifest.json
 """
 
@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -160,6 +162,43 @@ def step_key_for_step(step: dict[str, Any]) -> str:
     return f"{sign}h{hours:02d}m{minutes:02d}"
 
 
+def slug_part(value: Any, fallback: str = "unknown") -> str:
+    text = str(value or fallback)
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-").lower()
+    return slug or fallback
+
+
+def tile_set_key(payload: dict[str, Any], zooms: tuple[int, ...], scale: int, tile_format: str, webp_quality: int) -> str:
+    run_time = payload.get("run_time_utc") or payload.get("runTimeUtc") or payload.get("generated_at_utc")
+    zoom_label = "-".join(str(zoom) for zoom in zooms)
+    quality_label = f"-q{webp_quality}" if tile_format == "webp" else ""
+    return f"run-{slug_part(run_time)}-{tile_format}-s{scale}{quality_label}-z{zoom_label}"
+
+
+def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    tmp_path = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(tmp_path, path)
+
+
+def publish_tile_set(staging_root: Path, tile_root: Path) -> None:
+    tile_root.parent.mkdir(parents=True, exist_ok=True)
+    backup_root = None
+    if tile_root.exists():
+        backup_root = tile_root.with_name(f".previous-{tile_root.name}-{os.getpid()}")
+        if backup_root.exists():
+            shutil.rmtree(backup_root)
+        tile_root.rename(backup_root)
+    try:
+        staging_root.rename(tile_root)
+    except Exception:
+        if backup_root and backup_root.exists() and not tile_root.exists():
+            backup_root.rename(tile_root)
+        raise
+    if backup_root and backup_root.exists():
+        shutil.rmtree(backup_root)
+
+
 def build(
     model: str,
     zooms: tuple[int, ...],
@@ -180,8 +219,6 @@ def build(
     render_alpha = float(spec["render_alpha"])
 
     output_root = WIND2D / "tiles" / model
-    if output_root.exists():
-        shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
     # Render each 256-CSS-px tile at `scale`× physical pixels (e.g. 512) for crisp display on
@@ -191,6 +228,12 @@ def build(
     # WebP is ~8× smaller than PNG for these smooth translucent overlays (PNG ~175 KB vs WebP q90
     # ~22 KB per 512px tile), which is the dominant lever for fast tile serving over the network.
     ext = "webp" if tile_format == "webp" else "png"
+    tile_set = tile_set_key(payload, zooms, scale, ext, webp_quality)
+    tile_root = output_root / "_sets" / tile_set
+    staging_root = output_root / "_staging" / f"{tile_set}-{os.getpid()}"
+    if staging_root.exists():
+        shutil.rmtree(staging_root)
+    staging_root.mkdir(parents=True, exist_ok=True)
     grid = np.arange(out_px, dtype=np.float32) + 0.5
     px, py = np.meshgrid(grid, grid)
 
@@ -214,7 +257,7 @@ def build(
                     image = render_tile(speed_kt, scale_max_kt, render_alpha)
                     if image is None:
                         continue
-                    path = output_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
+                    path = staging_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
                     path.parent.mkdir(parents=True, exist_ok=True)
                     if tile_format == "webp":
                         image.save(path, "WEBP", quality=webp_quality, method=4)
@@ -244,15 +287,22 @@ def build(
         "modes": ["speed"],
         "encoding": "color",
         "tileFormat": ext,
+        "tileSet": tile_set,
         "steps": manifest_steps,
-        "urlTemplate": f"./tiles/{model}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.{ext}",
+        "urlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.{ext}",
         "speedScaleMaxKt": scale_max_kt,
         "renderAlpha": render_alpha,
         "opacity": 1.0,
         "tileCount": tile_count,
         "source": {"json": str(json_path.relative_to(ROOT))},
     }
-    (output_root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        publish_tile_set(staging_root, tile_root)
+        write_json_atomic(output_root / "manifest.json", manifest)
+    except Exception:
+        if staging_root.exists():
+            shutil.rmtree(staging_root)
+        raise
     return manifest
 
 
