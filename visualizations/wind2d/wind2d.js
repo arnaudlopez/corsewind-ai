@@ -4392,6 +4392,75 @@ function updatePointReadout(latlng, overlay) {
   }
 }
 
+// Continuous wheel/trackpad zoom that glides toward the cursor, instead of Leaflet's stepped
+// debounced wheel zoom. It eases the live zoom toward an accumulated target every frame using
+// map._move (transform only, no tile reload) and settles via _moveEnd — much closer to the
+// "glued to the gesture" feel of Google Maps. Touch pinch is already continuous in Leaflet, so
+// this only replaces the desktop wheel/trackpad path. Adapted from the Leaflet.SmoothWheelZoom
+// pattern (Mutsuyuki, MIT).
+const SmoothWheelZoom = L.Handler.extend({
+  addHooks() {
+    L.DomEvent.on(this._map._container, "wheel", this._onWheelScroll, this);
+  },
+  removeHooks() {
+    L.DomEvent.off(this._map._container, "wheel", this._onWheelScroll, this);
+  },
+  _onWheelScroll(e) {
+    if (!this._isWheeling) this._onWheelStart(e);
+    this._onWheeling(e);
+  },
+  _onWheelStart(e) {
+    const map = this._map;
+    this._isWheeling = true;
+    this._wheelMousePosition = map.mouseEventToContainerPoint(e);
+    this._centerPoint = map.getSize()._divideBy(2);
+    this._startLatLng = map.containerPointToLatLng(this._centerPoint);
+    this._wheelStartLatLng = map.containerPointToLatLng(this._wheelMousePosition);
+    this._moved = false;
+    map._stop();
+    this._goalZoom = map.getZoom();
+    this._prevCenter = map.getCenter();
+    this._prevZoom = map.getZoom();
+    this._zoomAnimationId = requestAnimationFrame(() => this._updateWheelZoom());
+  },
+  _onWheeling(e) {
+    const map = this._map;
+    const sensitivity = (map.options.smoothSensitivity || 1) * 0.0022;
+    this._goalZoom = map._limitZoom(this._goalZoom + L.DomEvent.getWheelDelta(e) * sensitivity);
+    this._wheelMousePosition = map.mouseEventToContainerPoint(e);
+    window.clearTimeout(this._timeoutId);
+    this._timeoutId = window.setTimeout(() => this._onWheelEnd(), 180);
+    L.DomEvent.preventDefault(e);
+    L.DomEvent.stopPropagation(e);
+  },
+  _onWheelEnd() {
+    this._isWheeling = false;
+    cancelAnimationFrame(this._zoomAnimationId);
+    this._map._moveEnd(true);
+  },
+  _updateWheelZoom() {
+    const map = this._map;
+    // Bail if something else moved the map (don't fight other interactions).
+    if (!map.getCenter().equals(this._prevCenter) || map.getZoom() !== this._prevZoom) return;
+    this._zoom = Math.round((map.getZoom() + (this._goalZoom - map.getZoom()) * 0.3) * 100) / 100;
+    const delta = this._wheelMousePosition.subtract(this._centerPoint);
+    this._center =
+      map.options.smoothWheelZoom === "center" || (delta.x === 0 && delta.y === 0)
+        ? this._startLatLng
+        : map.unproject(map.project(this._wheelStartLatLng, this._zoom).subtract(delta), this._zoom);
+    if (!this._moved) {
+      map._moveStart(true, false);
+      this._moved = true;
+    }
+    map._move(this._center, this._zoom);
+    this._prevCenter = map.getCenter();
+    this._prevZoom = map.getZoom();
+    this._zoomAnimationId = requestAnimationFrame(() => this._updateWheelZoom());
+  },
+});
+L.Map.mergeOptions({ smoothWheelZoom: true, smoothSensitivity: 1.1 });
+L.Map.addInitHook("addHandler", "smoothWheelZoom", SmoothWheelZoom);
+
 async function main() {
   const map = L.map("map", {
     center: CENTER,
@@ -4400,15 +4469,16 @@ async function main() {
     maxZoom: 16,
     zoomControl: false,
     attributionControl: false,
-    // Google-Maps-style smooth zoom: continuous (fractional) levels with a quick eased glide
-    // and progressive tile fade-in — while staying responsive. wheelPxPerZoomLevel must stay
-    // low (≈ default 60) so one scroll/trackpad gesture zooms a satisfying amount; high values
-    // make the wheel feel slow and laborious.
+    // Google-Maps-style smooth zoom: continuous (fractional) levels with progressive tile
+    // fade-in. Wheel/trackpad zoom is handled by the custom SmoothWheelZoom handler (glides
+    // toward the cursor), so the default stepped scrollWheelZoom is disabled. Touch pinch keeps
+    // Leaflet's native continuous behaviour.
     fadeAnimation: true,
     zoomSnap: 0,
     zoomDelta: 0.8,
-    wheelDebounceTime: 40,
-    wheelPxPerZoomLevel: 60,
+    scrollWheelZoom: false,
+    smoothWheelZoom: true,
+    smoothSensitivity: 1.1,
   });
 
   L.tileLayer(BASEMAP_TILE_URL, {

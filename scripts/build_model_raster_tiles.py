@@ -67,10 +67,10 @@ def lonlat_to_tile(lon: float, lat: float, z: int) -> tuple[float, float]:
     return x, y
 
 
-def tile_pixel_to_lonlat(z: int, x: int, y: int, px: np.ndarray, py: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def tile_pixel_to_lonlat(z: int, x: int, y: int, px: np.ndarray, py: np.ndarray, dim: int = TILE_SIZE) -> tuple[np.ndarray, np.ndarray]:
     n = 2**z
-    xtile = x + px / TILE_SIZE
-    ytile = y + py / TILE_SIZE
+    xtile = x + px / dim
+    ytile = y + py / dim
     lon = xtile / n * 360.0 - 180.0
     lat_rad = np.arctan(np.sinh(math.pi * (1.0 - 2.0 * ytile / n)))
     return lon.astype(np.float32), np.degrees(lat_rad).astype(np.float32)
@@ -142,7 +142,7 @@ def render_tile(speed_kt: np.ndarray, scale_max_kt: float, render_alpha: float) 
     return Image.fromarray(rgba, mode="RGBA")
 
 
-def build(model: str, zooms: tuple[int, ...], scale_max_kt: float) -> dict[str, Any]:
+def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 2) -> dict[str, Any]:
     spec = MODELS[model]
     json_path = WIND2D / spec["json"]
     if not json_path.exists():
@@ -159,7 +159,11 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float) -> dict[str, 
         shutil.rmtree(output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    grid = np.arange(TILE_SIZE, dtype=np.float32) + 0.5
+    # Render each 256-CSS-px tile at `scale`× physical pixels (e.g. 512) for crisp display on
+    # retina/hi-dpi screens. The manifest tileSize stays 256, so the browser fits the larger
+    # image into the 256 CSS box — sharp on dpr≥2, fine on dpr 1.
+    out_px = TILE_SIZE * scale
+    grid = np.arange(out_px, dtype=np.float32) + 0.5
     px, py = np.meshgrid(grid, grid)
 
     manifest_steps: list[dict[str, Any]] = []
@@ -172,7 +176,7 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float) -> dict[str, 
             x_range, y_range = tile_ranges(bbox, z)
             for x_tile in x_range:
                 for y_tile in y_range:
-                    lons, lats = tile_pixel_to_lonlat(z, x_tile, y_tile, px, py)
+                    lons, lats = tile_pixel_to_lonlat(z, x_tile, y_tile, px, py, out_px)
                     speed_kt = bilinear_wgs84(speed_ms, bbox, lons, lats) * KNOTS_PER_MPS
                     image = render_tile(speed_kt, scale_max_kt, render_alpha)
                     if image is None:
@@ -191,6 +195,8 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float) -> dict[str, 
         "runTimeUtc": payload.get("run_time_utc"),
         "bounds_wgs84": list(bbox),
         "tileSize": TILE_SIZE,
+        "renderScale": scale,
+        "tilePixels": TILE_SIZE * scale,
         "zooms": list(zooms),
         "modes": ["speed"],
         "encoding": "color",
@@ -212,6 +218,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--all", action="store_true", help="Build tiles for every available model JSON.")
     parser.add_argument("--zooms", nargs="+", type=int, default=list(DEFAULT_ZOOMS))
     parser.add_argument("--scale-max-kt", type=float, default=DEFAULT_SCALE_MAX_KT)
+    parser.add_argument("--scale", type=int, default=2, choices=[1, 2, 3], help="Physical-pixel supersampling per 256 CSS tile (2 = retina).")
     return parser.parse_args()
 
 
@@ -224,8 +231,8 @@ def main() -> None:
                 print(f"skip {model}: source JSON missing")
                 continue
             raise FileNotFoundError(f"Model JSON not found for {model}")
-        manifest = build(model, tuple(args.zooms), args.scale_max_kt)
-        print(f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · zooms {manifest['zooms']}")
+        manifest = build(model, tuple(args.zooms), args.scale_max_kt, args.scale)
+        print(f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · zooms {manifest['zooms']} · {manifest['tilePixels']}px")
         print(f"  wrote {(WIND2D / 'tiles' / model / 'manifest.json').relative_to(ROOT)}")
 
 
