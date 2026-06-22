@@ -279,9 +279,13 @@ class AromeWindOverlay extends L.Layer {
 
   heatLayerVisible() {
     if (!anyRawLayerVisible(this) || this.displayMode !== "speed") return false;
-    // When pre-baked raster tiles cover the active model/step/zoom, they replace the JS heat
-    // layer entirely — drawing both would double the overlay and waste CPU.
-    if (activeModelRasterAvailable(this)) return false;
+    // Pre-baked raster tiles replace the JS heat layer — but only hide heat once the raster
+    // layer has actually painted (everLoaded). This keeps heat as a seamless fallback while
+    // tiles are still loading (cold start / new run), with no basemap flash at the handoff.
+    // everLoaded lives on the model's tile state, so it persists across step changes (no heat
+    // flicker when scrubbing the timeline) and resets only when a new run replaces the manifest.
+    const state = this.rasterTilesByModel?.[rawModelKey(this)];
+    if (state?.everLoaded && rasterStateAvailable(this, state)) return false;
     return true;
   }
 
@@ -2485,16 +2489,25 @@ function updateRasterTileLayer(overlay) {
   const tileTemplate = overlay.rasterTiles.urlTemplate.replace("{step}", step).replace("{mode}", mode);
   const tileVersion = overlay.rasterTiles.runTimeUtc || DATA_VERSION;
   const url = `${tileTemplate}${tileTemplate.includes("?") ? "&" : "?"}v=${encodeURIComponent(tileVersion)}`;
-  overlay.rasterTiles.activeLayer = L.tileLayer(url, {
-    bounds: overlay.rasterTiles.bounds || undefined,
-    minZoom: rasterDisplayMinZoom(overlay.rasterTiles),
-    maxNativeZoom: Math.max(...overlay.rasterTiles.zooms),
+  const state = overlay.rasterTiles;
+  const layer = L.tileLayer(url, {
+    bounds: state.bounds || undefined,
+    minZoom: rasterDisplayMinZoom(state),
+    maxNativeZoom: Math.max(...state.zooms),
     maxZoom: 16,
-    opacity: overlay.rasterTiles.opacity ?? 0.86,
+    opacity: state.opacity ?? 0.86,
     keepBuffer: 4,
     updateWhenZooming: false,
     pane: "windHeatPane",
-  }).addTo(overlay.map);
+  });
+  // Once the raster has painted, mark the model state and hide the JS heat fallback. everLoaded
+  // persists on the state across step changes, so heat only re-shows for a genuinely new run.
+  layer.on("load", () => {
+    if (state.everLoaded) return;
+    state.everLoaded = true;
+    overlay.redrawHeatLayer();
+  });
+  state.activeLayer = layer.addTo(overlay.map);
   overlay.rasterTiles.activeKey = activeKey;
 }
 
