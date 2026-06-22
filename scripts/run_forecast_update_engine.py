@@ -664,6 +664,23 @@ def enqueue_raster_tile_build(model: str, reason: str) -> dict[str, Any]:
     return {"cmd": printable_command(command_line(model_raster_tiles_command(model))), "status": "queued", "model": model}
 
 
+def enqueue_raster_tiles_if_source_changed(
+    source: str,
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+    reason: str,
+) -> None:
+    if source not in RASTER_TILE_MODELS:
+        return
+    if not (args.dry_run or status["sources"].get(source, {}).get("changed")):
+        return
+    if args.dry_run:
+        commands.append(run_command(model_raster_tiles_command(source), args.dry_run))
+    else:
+        commands.append(enqueue_raster_tile_build(source, reason))
+
+
 def wait_for_raster_tile_queue() -> None:
     if RASTER_TILE_QUEUE.unfinished_tasks:
         print("waiting for queued raster tile builds", flush=True)
@@ -1269,9 +1286,11 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             status,
             commands,
         )
+        enqueue_raster_tiles_if_source_changed("arome", args, status, commands, "arome source changed")
         any_source_ran = True
     if source_decisions.get("aromepi", {}).get("due"):
         refresh_source("aromepi", arome_pi_refresh_command(args), args, state, status, commands)
+        enqueue_raster_tiles_if_source_changed("aromepi", args, status, commands, "aromepi source changed")
         any_source_ran = True
     if source_decisions.get("moloch", {}).get("due"):
         source = args.moloch_input or os.getenv("MOLOCH_SOURCE") or os.getenv("MOLOCH_SOURCE_URL")
@@ -1283,6 +1302,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             status,
             commands,
         )
+        enqueue_raster_tiles_if_source_changed("moloch", args, status, commands, "moloch source changed")
         any_source_ran = True
     if source_decisions.get("icon2i", {}).get("due"):
         source = args.icon2i_input or os.getenv("ICON2I_SOURCE") or os.getenv("ICON2I_SOURCE_URL")
@@ -1294,18 +1314,11 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             status,
             commands,
         )
+        enqueue_raster_tiles_if_source_changed("icon2i", args, status, commands, "icon2i source changed")
         any_source_ran = True
     any_source_changed = any(bool(item.get("changed")) for item in status["sources"].values())
     if any_source_ran or any_source_changed or args.dry_run:
         commands.append(run_command(compress_wind2d_json_command(), args.dry_run))
-    # Re-bake the colour raster tiles for any model whose run changed, so the fast pre-baked
-    # overlay stays in sync with the freshly published forecast JSON.
-    for source in RASTER_TILE_MODELS:
-        if args.dry_run or status["sources"].get(source, {}).get("changed"):
-            if args.dry_run:
-                commands.append(run_command(model_raster_tiles_command(source), args.dry_run))
-            else:
-                commands.append(enqueue_raster_tile_build(source, "source changed"))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
