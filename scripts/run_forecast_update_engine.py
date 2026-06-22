@@ -574,6 +574,10 @@ def raster_manifest_needs_rebuild(manifest_path: Path) -> bool:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return True
+    # Rebuild older PNG tiles into the smaller WebP format on deploy (old manifests have no
+    # tileFormat field, or "png").
+    if manifest.get("tileFormat") != "webp":
+        return True
     steps = manifest.get("steps") or []
     keys = [step.get("key") for step in steps if step.get("key")]
     return not keys or len(keys) != len(set(keys))

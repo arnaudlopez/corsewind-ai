@@ -2478,7 +2478,13 @@ function updateRasterTileLayer(overlay) {
   const activeKey = `${step}:${mode}`;
   if (overlay.rasterTiles.activeKey === activeKey && overlay.rasterTiles.activeLayer) return;
   if (overlay.rasterTiles.activeLayer) overlay.map.removeLayer(overlay.rasterTiles.activeLayer);
-  const url = versionedDataUrl(overlay.rasterTiles.urlTemplate.replace("{step}", step).replace("{mode}", mode));
+  // Version tiles by the model run (stable while the run is unchanged) rather than the per-load
+  // DATA_VERSION (Date.now()): combined with immutable Cache-Control on the server, the browser
+  // then reuses cached tiles across reloads and pan-backs, and only refetches when a new run
+  // publishes (runTimeUtc changes → new URL → new layer is rebuilt by the manifest poll).
+  const tileTemplate = overlay.rasterTiles.urlTemplate.replace("{step}", step).replace("{mode}", mode);
+  const tileVersion = overlay.rasterTiles.runTimeUtc || DATA_VERSION;
+  const url = `${tileTemplate}${tileTemplate.includes("?") ? "&" : "?"}v=${encodeURIComponent(tileVersion)}`;
   overlay.rasterTiles.activeLayer = L.tileLayer(url, {
     bounds: overlay.rasterTiles.bounds || undefined,
     minZoom: rasterDisplayMinZoom(overlay.rasterTiles),
@@ -3242,7 +3248,7 @@ function rasterManifestSignature(state) {
   const steps = (state.steps || [])
     .map((step) => `${step.key || ""}:${step.lead_hour ?? ""}:${step.lead_minutes ?? ""}:${step.valid_time_utc || ""}`)
     .join("|");
-  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileCount || 0}:${steps}`;
+  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileFormat || ""}:${state.tileCount || 0}:${steps}`;
 }
 
 // Load the pre-baked colour-tile manifest for each raw model (./tiles/<model>/manifest.json).

@@ -160,7 +160,14 @@ def step_key_for_step(step: dict[str, Any]) -> str:
     return f"{sign}h{hours:02d}m{minutes:02d}"
 
 
-def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 2) -> dict[str, Any]:
+def build(
+    model: str,
+    zooms: tuple[int, ...],
+    scale_max_kt: float,
+    scale: int = 2,
+    tile_format: str = "webp",
+    webp_quality: int = 90,
+) -> dict[str, Any]:
     spec = MODELS[model]
     json_path = WIND2D / spec["json"]
     if not json_path.exists():
@@ -181,6 +188,9 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 
     # retina/hi-dpi screens. The manifest tileSize stays 256, so the browser fits the larger
     # image into the 256 CSS box — sharp on dpr≥2, fine on dpr 1.
     out_px = TILE_SIZE * scale
+    # WebP is ~8× smaller than PNG for these smooth translucent overlays (PNG ~175 KB vs WebP q90
+    # ~22 KB per 512px tile), which is the dominant lever for fast tile serving over the network.
+    ext = "webp" if tile_format == "webp" else "png"
     grid = np.arange(out_px, dtype=np.float32) + 0.5
     px, py = np.meshgrid(grid, grid)
 
@@ -204,9 +214,12 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 
                     image = render_tile(speed_kt, scale_max_kt, render_alpha)
                     if image is None:
                         continue
-                    path = output_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.png"
+                    path = output_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    image.save(path, compress_level=2)
+                    if tile_format == "webp":
+                        image.save(path, "WEBP", quality=webp_quality, method=4)
+                    else:
+                        image.save(path, compress_level=2)
                     tile_count += 1
         manifest_steps.append(
             {
@@ -230,8 +243,9 @@ def build(model: str, zooms: tuple[int, ...], scale_max_kt: float, scale: int = 
         "zooms": list(zooms),
         "modes": ["speed"],
         "encoding": "color",
+        "tileFormat": ext,
         "steps": manifest_steps,
-        "urlTemplate": f"./tiles/{model}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.png",
+        "urlTemplate": f"./tiles/{model}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.{ext}",
         "speedScaleMaxKt": scale_max_kt,
         "renderAlpha": render_alpha,
         "opacity": 1.0,
@@ -249,6 +263,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--zooms", nargs="+", type=int, default=list(DEFAULT_ZOOMS))
     parser.add_argument("--scale-max-kt", type=float, default=DEFAULT_SCALE_MAX_KT)
     parser.add_argument("--scale", type=int, default=2, choices=[1, 2, 3], help="Physical-pixel supersampling per 256 CSS tile (2 = retina).")
+    parser.add_argument("--format", dest="tile_format", choices=["webp", "png"], default="webp", help="Tile image format. WebP is ~8× smaller than PNG for these overlays.")
+    parser.add_argument("--webp-quality", type=int, default=90, help="WebP quality (lossy). 90 is visually lossless for these translucent overlays.")
     return parser.parse_args()
 
 
@@ -261,8 +277,8 @@ def main() -> None:
                 print(f"skip {model}: source JSON missing")
                 continue
             raise FileNotFoundError(f"Model JSON not found for {model}")
-        manifest = build(model, tuple(args.zooms), args.scale_max_kt, args.scale)
-        print(f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · zooms {manifest['zooms']} · {manifest['tilePixels']}px")
+        manifest = build(model, tuple(args.zooms), args.scale_max_kt, args.scale, args.tile_format, args.webp_quality)
+        print(f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · zooms {manifest['zooms']} · {manifest['tilePixels']}px · {manifest['tileFormat']}")
         print(f"  wrote {(WIND2D / 'tiles' / model / 'manifest.json').relative_to(ROOT)}")
 
 

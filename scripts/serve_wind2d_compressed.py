@@ -13,6 +13,9 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPRESSIBLE_SUFFIXES = {".html", ".js", ".css", ".json", ".csv", ".txt", ".md"}
+# Some minimal base images don't ship a .webp mime mapping; register it so tiles are served as
+# image/webp rather than application/octet-stream.
+mimetypes.add_type("image/webp", ".webp")
 
 
 class GzipStaticHandler(SimpleHTTPRequestHandler):
@@ -23,7 +26,16 @@ class GzipStaticHandler(SimpleHTTPRequestHandler):
 
     def end_headers(self) -> None:
         self.send_header("Vary", "Accept-Encoding")
+        # Pre-baked tiles are immutable for a given run; the client versions their URL by the run
+        # (?v=<runTimeUtc>), so we can cache hard. This eliminates the per-tile revalidation
+        # round-trips (304s) on pan-back/reload that made serving the PNG tiles feel slow.
+        if self._is_immutable_tile():
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
         super().end_headers()
+
+    def _is_immutable_tile(self) -> bool:
+        path = urlsplit(self.path).path.lower()
+        return path.endswith((".png", ".webp")) and "/visualizations/wind2d/" in path
 
     def do_GET(self) -> None:
         self._send_maybe_compressed(head_only=False)
