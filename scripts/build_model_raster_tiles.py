@@ -22,6 +22,7 @@ import math
 import os
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -34,9 +35,9 @@ WIND2D = ROOT / "visualizations/wind2d"
 TILE_SIZE = 256
 KNOTS_PER_MPS = 1.943844492
 DEFAULT_SCALE_MAX_KT = 14.0
-# The raw models are ~1 km resolution, so z11 already heavily oversamples the field; Leaflet
-# overzooms beyond maxNativeZoom for closer views. Generating z12+ only multiplies tiles.
-DEFAULT_ZOOMS = tuple(range(8, 12))
+# The raw models are ~1 km resolution; z10 is enough native detail for Corsica and Leaflet
+# overzooms beyond maxNativeZoom for closer views. Higher native zooms multiply rebuild time.
+DEFAULT_ZOOMS = tuple(range(8, 11))
 
 # Per-model source JSON and the render alpha the client applies to each raw layer
 # (see rawModelFieldAt defaults in wind2d.js). Baking this keeps tiles visually identical
@@ -168,10 +169,10 @@ def slug_part(value: Any, fallback: str = "unknown") -> str:
     return slug or fallback
 
 
-def tile_set_key(payload: dict[str, Any], zooms: tuple[int, ...], scale: int, tile_format: str, webp_quality: int) -> str:
+def tile_set_key(payload: dict[str, Any], zooms: tuple[int, ...], scale: int, tile_format: str, webp_quality: int, webp_method: int) -> str:
     run_time = payload.get("run_time_utc") or payload.get("runTimeUtc") or payload.get("generated_at_utc")
     zoom_label = "-".join(str(zoom) for zoom in zooms)
-    quality_label = f"-q{webp_quality}" if tile_format == "webp" else ""
+    quality_label = f"-q{webp_quality}-m{webp_method}" if tile_format == "webp" else ""
     return f"run-{slug_part(run_time)}-{tile_format}-s{scale}{quality_label}-z{zoom_label}"
 
 
@@ -203,10 +204,12 @@ def build(
     model: str,
     zooms: tuple[int, ...],
     scale_max_kt: float,
-    scale: int = 2,
+    scale: int = 1,
     tile_format: str = "webp",
     webp_quality: int = 90,
+    webp_method: int = 2,
 ) -> dict[str, Any]:
+    build_started = time.perf_counter()
     spec = MODELS[model]
     json_path = WIND2D / spec["json"]
     if not json_path.exists():
@@ -228,7 +231,7 @@ def build(
     # WebP is ~8× smaller than PNG for these smooth translucent overlays (PNG ~175 KB vs WebP q90
     # ~22 KB per 512px tile), which is the dominant lever for fast tile serving over the network.
     ext = "webp" if tile_format == "webp" else "png"
-    tile_set = tile_set_key(payload, zooms, scale, ext, webp_quality)
+    tile_set = tile_set_key(payload, zooms, scale, ext, webp_quality, webp_method)
     tile_root = output_root / "_sets" / tile_set
     staging_root = output_root / "_staging" / f"{tile_set}-{os.getpid()}"
     if staging_root.exists():
@@ -240,6 +243,8 @@ def build(
     manifest_steps: list[dict[str, Any]] = []
     seen_step_keys: set[str] = set()
     tile_count = 0
+    render_seconds = 0.0
+    encode_seconds = 0.0
     for step in steps:
         lead_hour = normalise_lead_hour(step)
         step_key = step_key_for_step(step)
@@ -252,17 +257,21 @@ def build(
             x_range, y_range = tile_ranges(bbox, z)
             for x_tile in x_range:
                 for y_tile in y_range:
+                    render_started = time.perf_counter()
                     lons, lats = tile_pixel_to_lonlat(z, x_tile, y_tile, px, py, out_px)
                     speed_kt = bilinear_wgs84(speed_ms, bbox, lons, lats) * KNOTS_PER_MPS
                     image = render_tile(speed_kt, scale_max_kt, render_alpha)
+                    render_seconds += time.perf_counter() - render_started
                     if image is None:
                         continue
                     path = staging_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
                     path.parent.mkdir(parents=True, exist_ok=True)
+                    encode_started = time.perf_counter()
                     if tile_format == "webp":
-                        image.save(path, "WEBP", quality=webp_quality, method=4)
+                        image.save(path, "WEBP", quality=webp_quality, method=webp_method)
                     else:
                         image.save(path, compress_level=2)
+                    encode_seconds += time.perf_counter() - encode_started
                     tile_count += 1
         manifest_steps.append(
             {
@@ -288,6 +297,8 @@ def build(
         "encoding": "color",
         "tileFormat": ext,
         "tileSet": tile_set,
+        "webpQuality": webp_quality if ext == "webp" else None,
+        "webpMethod": webp_method if ext == "webp" else None,
         "steps": manifest_steps,
         "urlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.{ext}",
         "speedScaleMaxKt": scale_max_kt,
@@ -296,8 +307,20 @@ def build(
         "tileCount": tile_count,
         "source": {"json": str(json_path.relative_to(ROOT))},
     }
+    publish_seconds = 0.0
     try:
+        publish_started = time.perf_counter()
         publish_tile_set(staging_root, tile_root)
+        publish_seconds = time.perf_counter() - publish_started
+        total_seconds = time.perf_counter() - build_started
+        manifest["timings"] = {
+            "total_s": round(total_seconds, 3),
+            "render_s": round(render_seconds, 3),
+            "encode_s": round(encode_seconds, 3),
+            "publish_s": round(publish_seconds, 3),
+            "other_s": round(max(0.0, total_seconds - render_seconds - encode_seconds - publish_seconds), 3),
+            "tiles_per_s": round(tile_count / total_seconds, 3) if total_seconds > 0 else None,
+        }
         write_json_atomic(output_root / "manifest.json", manifest)
     except Exception:
         if staging_root.exists():
@@ -312,9 +335,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--all", action="store_true", help="Build tiles for every available model JSON.")
     parser.add_argument("--zooms", nargs="+", type=int, default=list(DEFAULT_ZOOMS))
     parser.add_argument("--scale-max-kt", type=float, default=DEFAULT_SCALE_MAX_KT)
-    parser.add_argument("--scale", type=int, default=2, choices=[1, 2, 3], help="Physical-pixel supersampling per 256 CSS tile (2 = retina).")
+    parser.add_argument("--scale", type=int, default=1, choices=[1, 2, 3], help="Physical-pixel supersampling per 256 CSS tile. 1 keeps server rebuilds responsive; Leaflet overzooms closer views.")
     parser.add_argument("--format", dest="tile_format", choices=["webp", "png"], default="webp", help="Tile image format. WebP is ~8× smaller than PNG for these overlays.")
     parser.add_argument("--webp-quality", type=int, default=90, help="WebP quality (lossy). 90 is visually lossless for these translucent overlays.")
+    parser.add_argument("--webp-method", type=int, default=2, choices=range(0, 7), help="WebP encoder effort, 0=fastest and 6=slowest. Lower keeps server rebuilds responsive.")
     return parser.parse_args()
 
 
@@ -327,8 +351,14 @@ def main() -> None:
                 print(f"skip {model}: source JSON missing")
                 continue
             raise FileNotFoundError(f"Model JSON not found for {model}")
-        manifest = build(model, tuple(args.zooms), args.scale_max_kt, args.scale, args.tile_format, args.webp_quality)
-        print(f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · zooms {manifest['zooms']} · {manifest['tilePixels']}px · {manifest['tileFormat']}")
+        manifest = build(model, tuple(args.zooms), args.scale_max_kt, args.scale, args.tile_format, args.webp_quality, args.webp_method)
+        timings = manifest.get("timings") or {}
+        print(
+            f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · "
+            f"zooms {manifest['zooms']} · {manifest['tilePixels']}px · {manifest['tileFormat']} · "
+            f"{timings.get('total_s', '?')}s total · render {timings.get('render_s', '?')}s · "
+            f"encode {timings.get('encode_s', '?')}s"
+        )
         print(f"  wrote {(WIND2D / 'tiles' / model / 'manifest.json').relative_to(ROOT)}")
 
 

@@ -6,10 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -561,6 +563,15 @@ def compress_wind2d_json_command() -> tuple[str, ...]:
 # Models whose colour overlay is served as pre-baked raster tiles (Google-Maps style) so the
 # Wind2D client renders instantly instead of computing the field per pixel in JavaScript.
 RASTER_TILE_MODELS = ("arome", "aromepi", "moloch", "icon2i")
+RASTER_TILE_EXPECTED_ZOOMS = [8, 9, 10]
+RASTER_TILE_EXPECTED_RENDER_SCALE = 1
+RASTER_TILE_EXPECTED_WEBP_METHOD = 2
+RASTER_TILE_QUEUE: queue.Queue[str] = queue.Queue(maxsize=len(RASTER_TILE_MODELS))
+RASTER_TILE_QUEUE_LOCK = threading.Lock()
+RASTER_TILE_QUEUED_MODELS: set[str] = set()
+RASTER_TILE_RUNNING_MODELS: set[str] = set()
+RASTER_TILE_RERUN_MODELS: set[str] = set()
+RASTER_TILE_WORKER_STARTED = False
 
 
 def model_raster_tiles_command(model: str) -> tuple[str, ...]:
@@ -578,9 +589,85 @@ def raster_manifest_needs_rebuild(manifest_path: Path) -> bool:
     # tileFormat field, or "png").
     if manifest.get("tileFormat") != "webp":
         return True
+    if manifest.get("zooms") != RASTER_TILE_EXPECTED_ZOOMS:
+        return True
+    if manifest.get("renderScale") != RASTER_TILE_EXPECTED_RENDER_SCALE:
+        return True
+    if manifest.get("webpMethod") != RASTER_TILE_EXPECTED_WEBP_METHOD:
+        return True
     steps = manifest.get("steps") or []
     keys = [step.get("key") for step in steps if step.get("key")]
     return not keys or len(keys) != len(set(keys))
+
+
+def raster_tile_queue_worker() -> None:
+    while True:
+        model = RASTER_TILE_QUEUE.get()
+        with RASTER_TILE_QUEUE_LOCK:
+            RASTER_TILE_QUEUED_MODELS.discard(model)
+            RASTER_TILE_RUNNING_MODELS.add(model)
+        print(f"bootstrapping raster tiles for {model}", flush=True)
+        cmd = command_line(model_raster_tiles_command(model))
+        try:
+            proc = subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, check=False)
+        except Exception as exc:
+            print(f"failed to bootstrap raster tiles for {model}: {exc}", flush=True)
+        else:
+            if proc.stdout:
+                print(proc.stdout, end="", flush=True)
+            if proc.stderr:
+                print(proc.stderr, end="", file=sys.stderr, flush=True)
+            if proc.returncode != 0:
+                print(f"failed to bootstrap raster tiles for {model}: exit {proc.returncode}", flush=True)
+        finally:
+            with RASTER_TILE_QUEUE_LOCK:
+                RASTER_TILE_RUNNING_MODELS.discard(model)
+                rerun = model in RASTER_TILE_RERUN_MODELS
+                RASTER_TILE_RERUN_MODELS.discard(model)
+                if rerun:
+                    try:
+                        RASTER_TILE_QUEUE.put_nowait(model)
+                    except queue.Full:
+                        print(f"raster tile queue full; dropped rerun for {model}", flush=True)
+                    else:
+                        RASTER_TILE_QUEUED_MODELS.add(model)
+                        print(f"re-queued raster tiles for {model} after in-flight update", flush=True)
+            RASTER_TILE_QUEUE.task_done()
+
+
+def ensure_raster_tile_worker_started() -> None:
+    global RASTER_TILE_WORKER_STARTED
+    if RASTER_TILE_WORKER_STARTED:
+        return
+    threading.Thread(target=raster_tile_queue_worker, name="raster-tile-worker", daemon=True).start()
+    RASTER_TILE_WORKER_STARTED = True
+
+
+def enqueue_raster_tile_build(model: str, reason: str) -> dict[str, Any]:
+    if model not in RASTER_TILE_MODELS:
+        raise ValueError(f"Unknown raster tile model: {model}")
+    with RASTER_TILE_QUEUE_LOCK:
+        ensure_raster_tile_worker_started()
+        if model in RASTER_TILE_QUEUED_MODELS:
+            print(f"raster tiles for {model} already queued ({reason})", flush=True)
+            return {"cmd": printable_command(command_line(model_raster_tiles_command(model))), "status": "already_queued", "model": model}
+        if model in RASTER_TILE_RUNNING_MODELS:
+            RASTER_TILE_RERUN_MODELS.add(model)
+            print(f"raster tiles for {model} already running; queued rerun ({reason})", flush=True)
+            return {"cmd": printable_command(command_line(model_raster_tiles_command(model))), "status": "queued_after_running", "model": model}
+        try:
+            RASTER_TILE_QUEUE.put_nowait(model)
+        except queue.Full as exc:
+            raise RuntimeError(f"raster tile queue is full; cannot queue {model}") from exc
+        RASTER_TILE_QUEUED_MODELS.add(model)
+    print(f"queued raster tiles for {model} ({reason})", flush=True)
+    return {"cmd": printable_command(command_line(model_raster_tiles_command(model))), "status": "queued", "model": model}
+
+
+def wait_for_raster_tile_queue() -> None:
+    if RASTER_TILE_QUEUE.unfinished_tasks:
+        print("waiting for queued raster tile builds", flush=True)
+    RASTER_TILE_QUEUE.join()
 
 
 def bootstrap_raster_tiles() -> None:
@@ -589,17 +676,16 @@ def bootstrap_raster_tiles() -> None:
     AROME-PI manifest with duplicate sub-hourly step keys). Runs each as a detached background
     process so it never blocks the poll loop or the container healthcheck — the web server serves
     each model's manifest as soon as it is written, and the client picks it up on its next poll.
-    Steady-state regeneration on run changes is handled synchronously inside poll_once."""
+    Steady-state regeneration on run changes is handled by the same bounded queue."""
+    rebuild_models: list[str] = []
     for model in RASTER_TILE_MODELS:
         layer_path = SOURCE_LAYER_PATHS.get(model)
         manifest_path = ROOT / "visualizations/wind2d/tiles" / model / "manifest.json"
         if layer_path and layer_path.exists() and raster_manifest_needs_rebuild(manifest_path):
             reason = "missing" if not manifest_path.exists() else "invalid"
-            print(f"bootstrapping {reason} raster tiles for {model} (background)", flush=True)
-            subprocess.Popen(  # noqa: S603 - fixed, trusted command
-                [sys.executable, *model_raster_tiles_command(model)],
-                cwd=ROOT,
-            )
+            rebuild_models.append(model)
+    for model in rebuild_models:
+        enqueue_raster_tile_build(model, "bootstrap")
 
 
 def is_aromepi_waiting_result(result: dict[str, Any]) -> bool:
@@ -1216,7 +1302,10 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     # overlay stays in sync with the freshly published forecast JSON.
     for source in RASTER_TILE_MODELS:
         if args.dry_run or status["sources"].get(source, {}).get("changed"):
-            commands.append(run_command(model_raster_tiles_command(source), args.dry_run))
+            if args.dry_run:
+                commands.append(run_command(model_raster_tiles_command(source), args.dry_run))
+            else:
+                commands.append(enqueue_raster_tile_build(source, "source changed"))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
@@ -1446,6 +1535,8 @@ def main() -> None:
                     f"elapsed={status.get('elapsed_s')}s",
                     flush=True,
                 )
+                if args.once:
+                    wait_for_raster_tile_queue()
             except Exception as exc:
                 state["in_progress_run_time_utc"] = None
                 result = "stopping" if SHUTDOWN_REQUESTED else "failed"
