@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CorseWind Wind Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./wind2d.css?v=20260622-aromepi-raster-steps-1" />
+    <link rel="stylesheet" href="./wind2d.css?v=20260622-particle-defaults-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -99,22 +99,22 @@
           <div class="particle-controls" aria-label="Réglages particules">
             <label for="particle-opacity">
               <span>Luminosité particules</span>
-              <strong id="particle-opacity-value">100%</strong>
+              <strong id="particle-opacity-value">300%</strong>
             </label>
             <input id="particle-opacity" type="range" min="10" max="500" step="5" value="300" />
             <label for="particle-size">
               <span>Taille particules</span>
-              <strong id="particle-size-value">100%</strong>
+              <strong id="particle-size-value">150%</strong>
             </label>
-            <input id="particle-size" type="range" min="25" max="500" step="5" value="100" />
+            <input id="particle-size" type="range" min="25" max="500" step="5" value="150" />
             <label for="particle-density">
               <span>Nombre particules</span>
-              <strong id="particle-density-value">100%</strong>
+              <strong id="particle-density-value">300%</strong>
             </label>
             <input id="particle-density" type="range" min="20" max="500" step="5" value="300" />
             <label for="particle-life">
               <span>Durée de vie particules</span>
-              <strong id="particle-life-value">100%</strong>
+              <strong id="particle-life-value">400%</strong>
             </label>
             <input id="particle-life" type="range" min="20" max="500" step="5" value="400" />
           </div>
@@ -147,6 +147,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script type="module" src="./wind2d.js?v=20260622-aromepi-raster-steps-1"></script>
+    <script type="module" src="./wind2d.js?v=20260622-particle-defaults-1"></script>
   </body>
 </html>

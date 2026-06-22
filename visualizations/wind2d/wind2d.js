@@ -108,9 +108,9 @@ class AromeWindOverlay extends L.Layer {
     this.scaleMaxKnots = DEFAULT_SCALE_MAX_KT;
     this.particlesEnabled = true;
     this.particleOpacity = 3;
-    this.particleDensity = 2.1;
+    this.particleDensity = 3;
     this.particleLifeScale = 4;
-    this.particleSizeScale = 1;
+    this.particleSizeScale = 1.5;
     this.particles = [];
     this.particleFrame = null;
     this.lastParticleDrawTime = null;
