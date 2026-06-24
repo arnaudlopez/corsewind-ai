@@ -465,7 +465,7 @@ def runtime_metadata() -> dict[str, Any]:
     }
 
 
-def run_command(args: tuple[str, ...], dry_run: bool) -> dict[str, Any]:
+def run_command(args: tuple[str, ...], dry_run: bool, timeout_sec: int | None = None) -> dict[str, Any]:
     global ACTIVE_PROCESS
     cmd = command_line(args)
     printable = printable_command(cmd)
@@ -477,7 +477,12 @@ def run_command(args: tuple[str, ...], dry_run: bool) -> dict[str, Any]:
     print(f"running: {printable}", flush=True)
     proc = subprocess.Popen(cmd, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     ACTIVE_PROCESS = proc
+    timed_out = False
     try:
+        stdout, stderr = proc.communicate(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        proc.kill()
         stdout, stderr = proc.communicate()
     finally:
         if ACTIVE_PROCESS is proc:
@@ -491,12 +496,17 @@ def run_command(args: tuple[str, ...], dry_run: bool) -> dict[str, Any]:
         print(stderr, end="", file=sys.stderr, flush=True)
     result = {
         "cmd": printable,
-        "status": "pass" if proc.returncode == 0 else "fail",
+        "status": "timeout" if timed_out else ("pass" if proc.returncode == 0 else "fail"),
         "returncode": proc.returncode,
         "elapsed_s": elapsed,
         "stdout_tail": stdout[-4000:],
         "stderr_tail": stderr[-4000:],
     }
+    if timed_out:
+        result["timeout_sec"] = timeout_sec
+        if SHUTDOWN_REQUESTED:
+            raise RuntimeError(f"command stopped during shutdown: {printable}")
+        raise CommandFailed(f"command timed out after {timeout_sec}s: {printable}", result)
     if proc.returncode != 0:
         if SHUTDOWN_REQUESTED:
             raise RuntimeError(f"command stopped during shutdown: {printable}")
@@ -558,6 +568,12 @@ def icon2i_refresh_command(source: str | None, dataset: str, lead_hours: tuple[s
 
 def compress_wind2d_json_command() -> tuple[str, ...]:
     return ("scripts/compress_wind2d_json.py",)
+
+
+def publish_wind2d_json(args: argparse.Namespace, commands: list[dict[str, Any]], reason: str) -> None:
+    result = run_command(compress_wind2d_json_command(), args.dry_run)
+    result["reason"] = reason
+    commands.append(result)
 
 
 # Models whose colour overlay is served as pre-baked raster tiles (Google-Maps style) so the
@@ -721,6 +737,7 @@ def refresh_source(
     state: dict[str, Any],
     status: dict[str, Any],
     commands: list[dict[str, Any]],
+    command_timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     source_state = model_state(state, source)
     previous_completed = source_state.get("last_completed_run_time_utc")
@@ -736,7 +753,7 @@ def refresh_source(
     )
     source_state["last_poll_at_utc"] = utc_now()
     try:
-        command_result = run_command(command, args.dry_run)
+        command_result = run_command(command, args.dry_run, timeout_sec=command_timeout_sec)
         commands.append(command_result)
         current_run = previous_layer_run if args.dry_run else read_run_time(SOURCE_LAYER_PATHS[source])
         changed = bool(current_run and current_run != previous_completed)
@@ -1277,6 +1294,11 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     write_json(args.status_file, status)
 
     any_source_ran = False
+    if source_decisions.get("aromepi", {}).get("due"):
+        refresh_source("aromepi", arome_pi_refresh_command(args), args, state, status, commands)
+        publish_wind2d_json(args, commands, "aromepi source refreshed")
+        enqueue_raster_tiles_if_source_changed("aromepi", args, status, commands, "aromepi source changed")
+        any_source_ran = True
     if source_decisions.get("arome", {}).get("due"):
         refresh_source(
             "arome",
@@ -1286,11 +1308,8 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             status,
             commands,
         )
+        publish_wind2d_json(args, commands, "arome source refreshed")
         enqueue_raster_tiles_if_source_changed("arome", args, status, commands, "arome source changed")
-        any_source_ran = True
-    if source_decisions.get("aromepi", {}).get("due"):
-        refresh_source("aromepi", arome_pi_refresh_command(args), args, state, status, commands)
-        enqueue_raster_tiles_if_source_changed("aromepi", args, status, commands, "aromepi source changed")
         any_source_ran = True
     if source_decisions.get("moloch", {}).get("due"):
         source = args.moloch_input or os.getenv("MOLOCH_SOURCE") or os.getenv("MOLOCH_SOURCE_URL")
@@ -1301,7 +1320,9 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             state,
             status,
             commands,
+            command_timeout_sec=args.moloch_command_timeout_sec,
         )
+        publish_wind2d_json(args, commands, "moloch source refreshed")
         enqueue_raster_tiles_if_source_changed("moloch", args, status, commands, "moloch source changed")
         any_source_ran = True
     if source_decisions.get("icon2i", {}).get("due"):
@@ -1313,12 +1334,12 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             state,
             status,
             commands,
+            command_timeout_sec=args.icon2i_command_timeout_sec,
         )
+        publish_wind2d_json(args, commands, "icon2i source refreshed")
         enqueue_raster_tiles_if_source_changed("icon2i", args, status, commands, "icon2i source changed")
         any_source_ran = True
     any_source_changed = any(bool(item.get("changed")) for item in status["sources"].values())
-    if any_source_ran or any_source_changed or args.dry_run:
-        commands.append(run_command(compress_wind2d_json_command(), args.dry_run))
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
@@ -1492,12 +1513,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--moloch-dataset", default="MOLOCH")
     parser.add_argument("--moloch-lead-hours", nargs="+", default=None)
     parser.add_argument("--moloch-poll-interval-sec", type=int, default=1800)
+    parser.add_argument(
+        "--moloch-command-timeout-sec",
+        type=int,
+        default=int(os.getenv("MOLOCH_COMMAND_TIMEOUT_SEC", "1800")),
+        help="Maximum MOLOCH builder runtime before the cycle keeps the previous layer.",
+    )
     parser.add_argument("--moloch-skip-if-missing", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--enable-icon2i", action="store_true", help="Build the optional ICON-2I 2.2 km viewer layer.")
     parser.add_argument("--icon2i-input", default=None, help="Local GRIB/NetCDF/JSON file or direct URL. Defaults to latest MeteoHub ICON-2I bundle.")
     parser.add_argument("--icon2i-dataset", default="ICON_2I_SURFACE_PRESSURE_LEVELS")
     parser.add_argument("--icon2i-lead-hours", nargs="+", default=None)
     parser.add_argument("--icon2i-poll-interval-sec", type=int, default=1800)
+    parser.add_argument(
+        "--icon2i-command-timeout-sec",
+        type=int,
+        default=int(os.getenv("ICON2I_COMMAND_TIMEOUT_SEC", "1800")),
+        help="Maximum ICON-2I builder runtime before the cycle keeps the previous layer.",
+    )
     parser.add_argument(
         "--enable-windninja",
         action=argparse.BooleanOptionalAction,
