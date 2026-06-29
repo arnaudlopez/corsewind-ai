@@ -25,6 +25,21 @@ VARIABLES = {
     "u": "U_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND",
     "v": "V_COMPONENT_OF_WIND__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND",
 }
+WEATHER_VARIABLES = {
+    "cloud_cover_pct": {
+        "prefix": "TOTAL_CLOUD_COVER__GROUND_OR_WATER_SURFACE",
+        "suffix": "",
+        "height": None,
+        "unit": "%",
+    },
+    "precipitation_mm": {
+        "prefix": "TOTAL_WATER_PRECIPITATION__GROUND_OR_WATER_SURFACE",
+        "suffix": "_PT1H",
+        "suffixes": ("_PT1H", ""),
+        "height": None,
+        "unit": "mm",
+    },
+}
 GUST_VARIABLES_BY_RESOLUTION = {
     "001": {
         "name": "gust_speed",
@@ -71,7 +86,16 @@ def latest_complete_run(coverage_list: list[str], resolution: str) -> tuple[date
     if not complete:
         raise SystemExit("No complete AROME wind run found for speed/U/V.")
     run_time = max(complete)
-    return run_time, complete[run_time]
+    coverages = complete[run_time]
+    for variable_name, metadata in WEATHER_VARIABLES.items():
+        for suffix in metadata.get("suffixes", (metadata["suffix"],)):
+            for coverage_id in coverage_list:
+                if coverage_run_time(coverage_id, metadata["prefix"], suffix) == run_time:
+                    coverages[variable_name] = coverage_id
+                    break
+            if variable_name in coverages:
+                break
+    return run_time, coverages
 
 
 def download_tiff(
@@ -82,6 +106,7 @@ def download_tiff(
     product: str,
     resolution: str,
     auth_header: str,
+    height_m: int | None = 10,
 ) -> bool:
     if output.exists():
         return False
@@ -94,9 +119,10 @@ def download_tiff(
         ("format", "image/tiff"),
         ("subset", f"long({min_lon},{max_lon})"),
         ("subset", f"lat({min_lat},{max_lat})"),
-        ("subset", "height(10)"),
         ("subset", f"time({valid_time.isoformat().replace('+00:00', 'Z')})"),
     ]
+    if height_m is not None:
+        params.insert(-1, ("subset", f"height({height_m})"))
     response = request_api(url, params, auth_header)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(response.content)
@@ -152,14 +178,24 @@ def build_payload(
         valid_time = run_time + timedelta(hours=lead_hour)
         rasters: dict[str, np.ndarray] = {}
         for variable_name, coverage_id in coverages.items():
+            weather_metadata = WEATHER_VARIABLES.get(variable_name)
             output = raw_dir / f"arome_{resolution}_corsica_{slug}_h{lead_hour:02d}_{variable_name}_10m.tiff"
             try:
-                downloaded = download_tiff(coverage_id, output, bbox, valid_time, product, resolution, auth_header)
+                downloaded = download_tiff(
+                    coverage_id,
+                    output,
+                    bbox,
+                    valid_time,
+                    product,
+                    resolution,
+                    auth_header,
+                    weather_metadata.get("height") if weather_metadata else 10,
+                )
             except SystemExit:
-                if variable_name != "gust_speed":
+                if variable_name != "gust_speed" and variable_name not in WEATHER_VARIABLES:
                     raise
                 print(
-                    f"optional AROME gust unavailable for H+{lead_hour} valid={valid_time.isoformat()}",
+                    f"optional AROME {variable_name} unavailable for H+{lead_hour} valid={valid_time.isoformat()}",
                     file=sys.stderr,
                 )
                 continue
@@ -188,6 +224,14 @@ def build_payload(
         if gust_speed is not None:
             step["gust_stats_ms"] = finite_stats(gust_speed)
             step["gust_speed_ms"] = round_grid(gust_speed)
+        cloud_cover = rasters.get("cloud_cover_pct")
+        if cloud_cover is not None and cloud_cover.shape == speed.shape:
+            step["cloud_cover_stats_pct"] = finite_stats(cloud_cover)
+            step["cloud_cover_pct"] = round_grid(cloud_cover)
+        precipitation = rasters.get("precipitation_mm")
+        if precipitation is not None and precipitation.shape == speed.shape:
+            step["precipitation_stats_mm"] = finite_stats(precipitation)
+            step["precipitation_mm"] = round_grid(precipitation)
         steps.append(step)
 
     gust_metadata = GUST_VARIABLES_BY_RESOLUTION.get(resolution)

@@ -198,8 +198,13 @@ class AromeWindOverlay extends L.Layer {
   }
 
   setDisplayMode(mode) {
-    const nextMode = ["speed", "devente", "acceleration"].includes(mode) ? mode : "speed";
-    this.displayMode = windNinjaModesAvailable(this) ? nextMode : "speed";
+    const nextMode = ["speed", "cloud_rain", "devente", "acceleration"].includes(mode) ? mode : "speed";
+    if (nextMode === "cloud_rain") {
+      const state = this.rasterTilesByModel?.[rawModelKey(this)];
+      this.displayMode = state?.modes?.has("cloud_rain") ? "cloud_rain" : "speed";
+    } else {
+      this.displayMode = ["devente", "acceleration"].includes(nextMode) && !windNinjaModesAvailable(this) ? "speed" : nextMode;
+    }
     this.heatDirty = true;
     this.clearHeatTileCache();
     this.syncCanvasVisibility();
@@ -325,7 +330,7 @@ class AromeWindOverlay extends L.Layer {
 
   syncParticleVisibility() {
     if (!this.particleCanvas) return;
-    const hasWindLayer = anyRawLayerVisible(this) || this.visibleLayers.windninja50;
+    const hasWindLayer = (anyRawLayerVisible(this) || this.visibleLayers.windninja50) && this.displayMode === "speed";
     this.particleCanvas.hidden = !this.particlesEnabled || !hasWindLayer;
   }
 
@@ -2440,7 +2445,9 @@ function rasterStateAvailable(overlay, state) {
   const mode = rasterMode(overlay);
   if (!state.modes.has(mode)) return false;
   const key = rasterStepKeyForState(state, overlay.activeLeadHour);
-  return state.steps.some((step) => step.key === key);
+  const step = state.steps.find((item) => item.key === key);
+  if (!step) return false;
+  return !step.modes || step.modes.includes(mode);
 }
 
 function activeModelRasterAvailable(overlay) {
@@ -2495,7 +2502,7 @@ function updateRasterTileLayer(overlay) {
     minZoom: rasterDisplayMinZoom(state),
     maxNativeZoom: Math.max(...state.zooms),
     maxZoom: 16,
-    opacity: state.opacity ?? 0.86,
+    opacity: mode === "cloud_rain" ? 1 : state.opacity ?? 0.86,
     keepBuffer: 4,
     updateWhenZooming: false,
     pane: "windHeatPane",
@@ -3587,17 +3594,27 @@ function buildSurfaceLegend() {
 function syncModeControls(overlay) {
   const tabs = [...document.querySelectorAll(".mode-tab")];
   const windNinjaAvailable = windNinjaModesAvailable(overlay);
-  if (!windNinjaAvailable && overlay.displayMode !== "speed") overlay.displayMode = "speed";
+  const rasterState = overlay.rasterTilesByModel?.[rawModelKey(overlay)];
+  const cloudRainAvailable = Boolean(rasterState?.modes?.has("cloud_rain"));
+  if (overlay.displayMode === "cloud_rain" && !cloudRainAvailable) overlay.displayMode = "speed";
+  if (["devente", "acceleration"].includes(overlay.displayMode) && !windNinjaAvailable) overlay.displayMode = "speed";
   tabs.forEach((tab) => {
     const mode = tab.dataset.mode || "speed";
-    const disabled = !windNinjaAvailable;
+    const disabled =
+      mode === "speed"
+        ? false
+        : mode === "cloud_rain"
+          ? !cloudRainAvailable
+          : !windNinjaAvailable;
     tab.disabled = disabled;
     tab.classList.toggle("disabled", disabled);
     tab.classList.toggle("active", mode === overlay.displayMode);
     tab.setAttribute("aria-disabled", String(disabled));
-    tab.title = disabled
-      ? "Les modèles bruts s'affichent uniquement en vitesse. Dévente et accélération sont disponibles avec WindNinja."
-      : "Mode WindNinja";
+    tab.title = disabled && mode === "cloud_rain"
+      ? "Nuages / pluie indisponible pour ce modèle ou ce run."
+      : mode === "cloud_rain"
+        ? "Afficher le voile nuageux prévisionnel et la pluie."
+        : "Afficher le vent.";
   });
 }
 
@@ -3790,10 +3807,25 @@ function updateLegendTitle(mode) {
   if (surfaceLegend) surfaceLegend.hidden = true;
   const labels = {
     speed: "Vitesse du vent",
+    cloud_rain: "Nuages / pluie",
     devente: "Dévente WindNinja",
     acceleration: "Accélération WindNinja",
   };
   title.textContent = labels[mode] || labels.speed;
+  if (continuousLegend) {
+    continuousLegend.style.background =
+      mode === "cloud_rain"
+        ? "linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(190,200,210,0.34) 38%, rgba(238,242,246,0.72) 66%, rgba(56,189,248,0.82) 84%, rgba(79,70,229,0.92) 100%)"
+        : "";
+  }
+  if (mode === "cloud_rain") {
+    document.querySelector("#scale-min").textContent = "clair";
+    document.querySelector("#scale-mid").textContent = "nuageux";
+    document.querySelector("#scale-max-label").textContent = "pluie";
+    if (scaleControl) scaleControl.hidden = true;
+  } else {
+    updateScaleLabels(Number(document.querySelector("#wind-scale")?.value || DEFAULT_SCALE_MAX_KT));
+  }
 }
 
 function bindCfdControl(map, overlay) {

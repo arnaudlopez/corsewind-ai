@@ -60,6 +60,13 @@ SPEED_STOPS: list[tuple[float, tuple[int, int, int]]] = [
     (0.94, (226, 54, 54)),
     (1.0, (150, 67, 190)),
 ]
+RAIN_STOPS: list[tuple[float, tuple[int, int, int]]] = [
+    (0.0, (125, 211, 252)),
+    (0.2, (56, 189, 248)),
+    (0.5, (14, 116, 224)),
+    (0.8, (79, 70, 229)),
+    (1.0, (126, 34, 206)),
+]
 
 
 def lonlat_to_tile(lon: float, lat: float, z: int) -> tuple[float, float]:
@@ -129,6 +136,20 @@ def speed_color(intensity: np.ndarray) -> np.ndarray:
     return np.round(out)
 
 
+def gradient_color(intensity: np.ndarray, stops: list[tuple[float, tuple[int, int, int]]]) -> np.ndarray:
+    out = np.zeros((*intensity.shape, 3), dtype=np.float32)
+    out[intensity <= stops[0][0]] = stops[0][1]
+    for idx in range(1, len(stops)):
+        stop, rgb = stops[idx]
+        prev_stop, prev_rgb = stops[idx - 1]
+        mask = (intensity > prev_stop) & (intensity <= stop)
+        t = ((intensity - prev_stop) / max(0.0001, stop - prev_stop))[..., None]
+        blended = np.array(prev_rgb, dtype=np.float32) + (np.array(rgb, dtype=np.float32) - np.array(prev_rgb, dtype=np.float32)) * t
+        out[mask] = blended[mask]
+    out[intensity > stops[-1][0]] = stops[-1][1]
+    return np.round(out)
+
+
 def render_tile(speed_kt: np.ndarray, scale_max_kt: float, render_alpha: float) -> Image.Image | None:
     intensity = np.clip(np.nan_to_num(speed_kt, nan=0.0) / scale_max_kt, 0, 1)
     rgb = speed_color(intensity)
@@ -142,6 +163,48 @@ def render_tile(speed_kt: np.ndarray, scale_max_kt: float, render_alpha: float) 
     if not np.any(alpha > 1):
         return None
     rgba = np.dstack([rgb, alpha]).astype(np.uint8)
+    return Image.fromarray(rgba, mode="RGBA")
+
+
+def normalise_cloud_pct(cloud: np.ndarray) -> np.ndarray:
+    finite = cloud[np.isfinite(cloud)]
+    if finite.size and float(np.nanmax(finite)) <= 1.5:
+        return cloud * 100.0
+    return cloud
+
+
+def render_cloud_rain_tile(cloud_pct: np.ndarray | None, precipitation_mm: np.ndarray | None) -> Image.Image | None:
+    shape = cloud_pct.shape if cloud_pct is not None else precipitation_mm.shape
+    cloud = np.zeros(shape, dtype=np.float32) if cloud_pct is None else normalise_cloud_pct(cloud_pct).astype(np.float32)
+    rain = np.zeros(shape, dtype=np.float32) if precipitation_mm is None else precipitation_mm.astype(np.float32)
+    valid = np.isfinite(cloud) | np.isfinite(rain)
+    cloud = np.nan_to_num(cloud, nan=0.0)
+    rain = np.nan_to_num(rain, nan=0.0)
+
+    cloud_intensity = np.clip(cloud / 100.0, 0, 1)
+    rain_intensity = np.clip(np.log1p(np.maximum(0.0, rain)) / np.log1p(8.0), 0, 1)
+
+    cloud_alpha = np.clip(np.power(np.clip((cloud_intensity - 0.12) / 0.88, 0, 1), 0.8) * 205.0, 0, 205)
+    cloud_rgb = np.empty((*shape, 3), dtype=np.float32)
+    cloud_rgb[..., 0] = 176 + cloud_intensity * 66
+    cloud_rgb[..., 1] = 185 + cloud_intensity * 58
+    cloud_rgb[..., 2] = 195 + cloud_intensity * 50
+
+    rain_alpha = np.clip(np.power(rain_intensity, 0.72) * 215.0, 0, 215)
+    rain_rgb = gradient_color(rain_intensity, RAIN_STOPS)
+
+    ca = (cloud_alpha / 255.0)[..., None]
+    ra = (rain_alpha / 255.0)[..., None]
+    out_a = ra + ca * (1.0 - ra)
+    out_rgb = np.divide(
+        rain_rgb * ra + cloud_rgb * ca * (1.0 - ra),
+        np.maximum(out_a, 0.0001),
+    )
+    alpha = np.clip(out_a[..., 0] * 255.0, 0, 255)
+    alpha[~valid] = 0
+    if not np.any(valid):
+        return None
+    rgba = np.dstack([out_rgb, alpha]).astype(np.uint8)
     return Image.fromarray(rgba, mode="RGBA")
 
 
@@ -242,6 +305,7 @@ def build(
 
     manifest_steps: list[dict[str, Any]] = []
     seen_step_keys: set[str] = set()
+    manifest_modes: set[str] = {"speed"}
     tile_count = 0
     render_seconds = 0.0
     encode_seconds = 0.0
@@ -253,6 +317,13 @@ def build(
             raise RuntimeError(f"Duplicate raster step key {step_key!r} for {model} at {valid_time}")
         seen_step_keys.add(step_key)
         speed_ms = np.array(step["speed_ms"], dtype=np.float32)
+        cloud_pct = np.array(step["cloud_cover_pct"], dtype=np.float32) if step.get("cloud_cover_pct") is not None else None
+        precipitation_mm = np.array(step["precipitation_mm"], dtype=np.float32) if step.get("precipitation_mm") is not None else None
+        has_weather = cloud_pct is not None or precipitation_mm is not None
+        step_modes = ["speed"]
+        if has_weather:
+            step_modes.append("cloud_rain")
+            manifest_modes.add("cloud_rain")
         for z in zooms:
             x_range, y_range = tile_ranges(bbox, z)
             for x_tile in x_range:
@@ -263,22 +334,40 @@ def build(
                     image = render_tile(speed_kt, scale_max_kt, render_alpha)
                     render_seconds += time.perf_counter() - render_started
                     if image is None:
-                        continue
-                    path = staging_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    encode_started = time.perf_counter()
-                    if tile_format == "webp":
-                        image.save(path, "WEBP", quality=webp_quality, method=webp_method)
+                        pass
                     else:
-                        image.save(path, compress_level=2)
-                    encode_seconds += time.perf_counter() - encode_started
-                    tile_count += 1
+                        path = staging_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        encode_started = time.perf_counter()
+                        if tile_format == "webp":
+                            image.save(path, "WEBP", quality=webp_quality, method=webp_method)
+                        else:
+                            image.save(path, compress_level=2)
+                        encode_seconds += time.perf_counter() - encode_started
+                        tile_count += 1
+                    if has_weather:
+                        weather_render_started = time.perf_counter()
+                        cloud_tile = bilinear_wgs84(cloud_pct, bbox, lons, lats) if cloud_pct is not None else None
+                        rain_tile = bilinear_wgs84(precipitation_mm, bbox, lons, lats) if precipitation_mm is not None else None
+                        weather_image = render_cloud_rain_tile(cloud_tile, rain_tile)
+                        render_seconds += time.perf_counter() - weather_render_started
+                        if weather_image is not None:
+                            path = staging_root / step_key / "cloud_rain" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
+                            path.parent.mkdir(parents=True, exist_ok=True)
+                            encode_started = time.perf_counter()
+                            if tile_format == "webp":
+                                weather_image.save(path, "WEBP", quality=webp_quality, method=webp_method)
+                            else:
+                                weather_image.save(path, compress_level=2)
+                            encode_seconds += time.perf_counter() - encode_started
+                            tile_count += 1
         manifest_steps.append(
             {
                 "key": step_key,
                 "lead_hour": lead_hour,
                 "lead_minutes": step.get("lead_minutes"),
                 "valid_time_utc": step.get("valid_time_utc"),
+                "modes": step_modes,
             }
         )
 
@@ -293,7 +382,7 @@ def build(
         "renderScale": scale,
         "tilePixels": TILE_SIZE * scale,
         "zooms": list(zooms),
-        "modes": ["speed"],
+        "modes": sorted(manifest_modes),
         "encoding": "color",
         "tileFormat": ext,
         "tileSet": tile_set,

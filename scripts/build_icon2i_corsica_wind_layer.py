@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 
 from build_moloch_corsica_wind_layer import (
+    CLOUD_CANDIDATES,
+    PRECIPITATION_CANDIDATES,
     U_CANDIDATES,
     V_CANDIDATES,
     array_lat_lon,
@@ -23,6 +25,7 @@ from build_moloch_corsica_wind_layer import (
     find_data_array,
     nearest_resample_curvilinear,
     open_datasets,
+    optional_resampled_grid,
     round_grid,
     run_time_from_arrays,
     select_lead,
@@ -90,6 +93,8 @@ def build_payload(input_path: Path, args: argparse.Namespace, bundle: OpenDataBu
     datasets = open_datasets(input_path)
     u_array = find_data_array(datasets, U_CANDIDATES)
     v_array = find_data_array(datasets, V_CANDIDATES)
+    cloud_array = find_data_array(datasets, CLOUD_CANDIDATES)
+    precipitation_array = find_data_array(datasets, PRECIPITATION_CANDIDATES)
     if u_array is None or v_array is None:
         available = sorted({name for dataset in datasets for name in dataset.data_vars})
         raise SystemExit(f"Cannot find 10 m U/V wind variables in {input_path}. Available: {available[:80]}")
@@ -112,18 +117,25 @@ def build_payload(input_path: Path, args: argparse.Namespace, bundle: OpenDataBu
         u_grid = nearest_resample_curvilinear(u_values, lat, lon, bbox, args.grid_step_deg)
         v_grid = nearest_resample_curvilinear(v_values, lat, lon, bbox, args.grid_step_deg)
         speed_grid = speed_grid_from_components(u_grid, v_grid)
+        cloud_grid = optional_resampled_grid(cloud_array, lead_hour, bbox, args.grid_step_deg)
+        precipitation_grid = optional_resampled_grid(precipitation_array, lead_hour, bbox, args.grid_step_deg)
         valid_time = run_time + timedelta(hours=int(lead_hour))
-        steps.append(
-            {
-                "lead_hour": int(lead_hour),
-                "valid_time_utc": valid_time.isoformat().replace("+00:00", "Z"),
-                "shape": list(speed_grid.shape),
-                "stats_ms": finite_stats(speed_grid),
-                "speed_ms": round_grid(speed_grid),
-                "u_ms": round_grid(u_grid),
-                "v_ms": round_grid(v_grid),
-            }
-        )
+        step = {
+            "lead_hour": int(lead_hour),
+            "valid_time_utc": valid_time.isoformat().replace("+00:00", "Z"),
+            "shape": list(speed_grid.shape),
+            "stats_ms": finite_stats(speed_grid),
+            "speed_ms": round_grid(speed_grid),
+            "u_ms": round_grid(u_grid),
+            "v_ms": round_grid(v_grid),
+        }
+        if cloud_grid is not None and cloud_grid.shape == speed_grid.shape:
+            step["cloud_cover_stats_pct"] = finite_stats(cloud_grid)
+            step["cloud_cover_pct"] = round_grid(cloud_grid)
+        if precipitation_grid is not None and precipitation_grid.shape == speed_grid.shape:
+            step["precipitation_stats_mm"] = finite_stats(precipitation_grid)
+            step["precipitation_mm"] = round_grid(precipitation_grid)
+        steps.append(step)
 
     shape = steps[0]["shape"]
     return {
@@ -142,6 +154,7 @@ def build_payload(input_path: Path, args: argparse.Namespace, bundle: OpenDataBu
             "lat_step_deg": round((bbox[3] - bbox[1]) / (shape[0] - 1), 6),
             "lon_step_deg": round((bbox[2] - bbox[0]) / (shape[1] - 1), 6),
             "resampling": "nearest source-grid point to regular WGS84 Corsica grid",
+            "weather_fields": "optional cloud/precipitation when present in source bundle",
         },
         "source_file": str(input_path),
         "source_bundle": bundle.to_dict() if bundle else None,

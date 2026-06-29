@@ -39,6 +39,23 @@ MEAN_VARIABLES = {
 GUST_VARIABLES = {
     "gust_speed": "WIND_SPEED_GUST_15MIN__SPECIFIC_HEIGHT_LEVEL_ABOVE_GROUND",
 }
+WEATHER_VARIABLES = {
+    "cloud_cover_pct": {
+        "prefix": "NEBUL__GROUND_OR_WATER_SURFACE",
+        "suffix": "",
+        "resolution": "0025",
+        "height": None,
+        "unit": "%",
+    },
+    "precipitation_mm": {
+        "prefix": "TOTAL_WATER_PRECIPITATION__GROUND_OR_WATER_SURFACE",
+        "suffix": "_PT15M",
+        "suffixes": ("_PT15M", ""),
+        "resolution": "0025",
+        "height": None,
+        "unit": "mm",
+    },
+}
 
 
 def utc_now() -> str:
@@ -72,7 +89,17 @@ def latest_common_run(mean_ids: list[str], gust_ids: list[str]) -> tuple[datetim
     if not complete:
         raise SystemExit("No complete AROME-PI hybrid run found for 0.025 mean wind and 0.01 gust PT15M.")
     run_time = max(complete)
-    return run_time, complete[run_time]
+    coverages = complete[run_time]
+    for variable_name, metadata in WEATHER_VARIABLES.items():
+        source_ids = gust_ids if metadata["resolution"] == "001" else mean_ids
+        for suffix in metadata.get("suffixes", (metadata["suffix"],)):
+            for coverage_id in source_ids:
+                if parse_coverage_run(coverage_id, metadata["prefix"], suffix) == run_time:
+                    coverages[variable_name] = coverage_id
+                    break
+            if variable_name in coverages:
+                break
+    return run_time, coverages
 
 
 def load_capabilities(product: str, resolution: str, auth_header: str) -> list[str]:
@@ -122,25 +149,23 @@ def download_tiff(
     bbox: tuple[float, float, float, float],
     valid_time: datetime,
     auth_header: str,
-    height_m: int = 10,
+    height_m: int | None = 10,
 ) -> bool:
     if output.exists() and output.stat().st_size > 0:
         return False
     min_lon, min_lat, max_lon, max_lat = bbox
-    response = request_api(
-        endpoint(product, resolution, "GetCoverage"),
-        [
-            ("service", "WCS"),
-            ("version", "2.0.1"),
-            ("coverageid", coverage_id),
-            ("format", "image/tiff"),
-            ("subset", f"long({min_lon},{max_lon})"),
-            ("subset", f"lat({min_lat},{max_lat})"),
-            ("subset", f"height({height_m})"),
-            ("subset", f"time({valid_time.isoformat().replace('+00:00', 'Z')})"),
-        ],
-        auth_header,
-    )
+    params = [
+        ("service", "WCS"),
+        ("version", "2.0.1"),
+        ("coverageid", coverage_id),
+        ("format", "image/tiff"),
+        ("subset", f"long({min_lon},{max_lon})"),
+        ("subset", f"lat({min_lat},{max_lat})"),
+        ("subset", f"time({valid_time.isoformat().replace('+00:00', 'Z')})"),
+    ]
+    if height_m is not None:
+        params.insert(-1, ("subset", f"height({height_m})"))
+    response = request_api(endpoint(product, resolution, "GetCoverage"), params, auth_header)
     output.parent.mkdir(parents=True, exist_ok=True)
     tmp = output.with_suffix(output.suffix + ".tmp")
     tmp.write_bytes(response.content)
@@ -218,6 +243,35 @@ def build_payload(
                 if downloaded and request_sleep_sec > 0:
                     time.sleep(request_sleep_sec)
                 rasters[variable_name] = read_float64_tiff(output)
+
+            for variable_name, metadata in WEATHER_VARIABLES.items():
+                coverage_id = coverages.get(variable_name)
+                if not coverage_id:
+                    continue
+                resolution = metadata["resolution"]
+                output = raw_dir / f"aromepi_{resolution}_corsica_{slug}_m{minute_offset:03d}_{variable_name}.tiff"
+                try:
+                    downloaded = download_tiff(
+                        "aromepi",
+                        resolution,
+                        coverage_id,
+                        output,
+                        bbox,
+                        valid_time,
+                        auth_header,
+                        metadata.get("height"),
+                    )
+                except SystemExit as exc:
+                    if is_unavailable_time_error(exc):
+                        print(
+                            f"optional AROME-PI {variable_name} unavailable at {valid_time.isoformat().replace('+00:00', 'Z')}: {exc}",
+                            flush=True,
+                        )
+                        continue
+                    raise
+                if downloaded and request_sleep_sec > 0:
+                    time.sleep(request_sleep_sec)
+                rasters[variable_name] = read_float64_tiff(output)
         except SystemExit as exc:
             if is_unavailable_time_error(exc):
                 print(
@@ -232,23 +286,30 @@ def build_payload(
         mean_speed = resample_regular(rasters["mean_speed"], target_shape)
         mean_u = resample_regular(rasters["mean_u"], target_shape)
         mean_v = resample_regular(rasters["mean_v"], target_shape)
+        cloud_cover = resample_regular(rasters["cloud_cover_pct"], target_shape) if "cloud_cover_pct" in rasters else None
+        precipitation = resample_regular(rasters["precipitation_mm"], target_shape) if "precipitation_mm" in rasters else None
         lead_minutes = minute_offset
         lead_hour = round(lead_minutes / 60, 4)
-        steps.append(
-            {
-                "lead_hour": lead_hour,
-                "lead_minutes": lead_minutes,
-                "valid_time_utc": valid_time.isoformat().replace("+00:00", "Z"),
-                "shape": list(target_shape),
-                "stats_ms": finite_stats(mean_speed),
-                "mean_stats_ms": finite_stats(mean_speed),
-                "gust_stats_ms": finite_stats(gust_speed),
-                "speed_ms": round_grid(mean_speed),
-                "gust_speed_ms": round_grid(gust_speed),
-                "u_ms": round_grid(mean_u),
-                "v_ms": round_grid(mean_v),
-            }
-        )
+        step = {
+            "lead_hour": lead_hour,
+            "lead_minutes": lead_minutes,
+            "valid_time_utc": valid_time.isoformat().replace("+00:00", "Z"),
+            "shape": list(target_shape),
+            "stats_ms": finite_stats(mean_speed),
+            "mean_stats_ms": finite_stats(mean_speed),
+            "gust_stats_ms": finite_stats(gust_speed),
+            "speed_ms": round_grid(mean_speed),
+            "gust_speed_ms": round_grid(gust_speed),
+            "u_ms": round_grid(mean_u),
+            "v_ms": round_grid(mean_v),
+        }
+        if cloud_cover is not None:
+            step["cloud_cover_stats_pct"] = finite_stats(cloud_cover)
+            step["cloud_cover_pct"] = round_grid(cloud_cover)
+        if precipitation is not None:
+            step["precipitation_stats_mm"] = finite_stats(precipitation)
+            step["precipitation_mm"] = round_grid(precipitation)
+        steps.append(step)
 
     shape = steps[0]["shape"]
     return {
@@ -268,6 +329,7 @@ def build_payload(
             "render_field": "0.025 deg WIND_SPEED resampled to 0.01 deg grid",
             "gust_field": "0.01 deg WIND_SPEED_GUST_15MIN PT15M",
             "vector_field": "0.025 deg U/V wind resampled to 0.01 deg grid",
+            "weather_field": "0.025 deg cloud/precipitation resampled to 0.01 deg grid when available",
         },
         "timeline": {
             "step_minutes": 15,
