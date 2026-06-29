@@ -200,8 +200,7 @@ class AromeWindOverlay extends L.Layer {
   setDisplayMode(mode) {
     const nextMode = ["speed", "cloud_rain", "devente", "acceleration"].includes(mode) ? mode : "speed";
     if (nextMode === "cloud_rain") {
-      const state = this.rasterTilesByModel?.[rawModelKey(this)];
-      this.displayMode = state?.modes?.has("cloud_rain") ? "cloud_rain" : "speed";
+      this.displayMode = cloudRainAvailableForLead(this) ? "cloud_rain" : "speed";
     } else {
       this.displayMode = ["devente", "acceleration"].includes(nextMode) && !windNinjaModesAvailable(this) ? "speed" : nextMode;
     }
@@ -3217,6 +3216,14 @@ function windNinjaModesAvailable(overlay) {
   return Boolean(overlay.visibleLayers.windninja50 && hasWindNinja50Step(overlay, overlay.activeLeadHour));
 }
 
+function cloudRainAvailableForLead(overlay, leadHour = overlay.activeLeadHour) {
+  const state = overlay.rasterTilesByModel?.[rawModelKey(overlay)];
+  if (!state?.modes?.has("cloud_rain")) return false;
+  const key = rasterStepKeyForState(state, leadHour);
+  const step = state.steps?.find((item) => item.key === key);
+  return Boolean(step && (!step.modes || step.modes.includes("cloud_rain")));
+}
+
 function applyPreferredForecastLayer(overlay) {
   const windNinjaAvailable = hasWindNinja50Step(overlay, overlay.activeLeadHour);
   if (windNinjaAvailable) {
@@ -3226,7 +3233,8 @@ function applyPreferredForecastLayer(overlay) {
     overlay.visibleLayers.windninja50 = false;
     if (!anyRawLayerVisible(overlay)) setFirstAvailableRawLayerVisible(overlay);
   }
-  if (!windNinjaAvailable) overlay.displayMode = "speed";
+  if (!windNinjaAvailable && ["devente", "acceleration"].includes(overlay.displayMode)) overlay.displayMode = "speed";
+  if (overlay.displayMode === "cloud_rain" && !cloudRainAvailableForLead(overlay)) overlay.displayMode = "speed";
   overlay.heatDirty = true;
   overlay.windNinjaDataTileCache?.clear();
   overlay.syncCanvasVisibility?.();
@@ -3234,6 +3242,7 @@ function applyPreferredForecastLayer(overlay) {
   overlay.redrawHeatLayer?.();
   syncLayerControls(overlay);
   syncModeControls(overlay);
+  updateLegendTitle(overlay.displayMode);
   refreshActiveLayerLabel(overlay);
   refreshCoverageStatus(overlay);
 }
@@ -3594,8 +3603,7 @@ function buildSurfaceLegend() {
 function syncModeControls(overlay) {
   const tabs = [...document.querySelectorAll(".mode-tab")];
   const windNinjaAvailable = windNinjaModesAvailable(overlay);
-  const rasterState = overlay.rasterTilesByModel?.[rawModelKey(overlay)];
-  const cloudRainAvailable = Boolean(rasterState?.modes?.has("cloud_rain"));
+  const cloudRainAvailable = cloudRainAvailableForLead(overlay);
   if (overlay.displayMode === "cloud_rain" && !cloudRainAvailable) overlay.displayMode = "speed";
   if (["devente", "acceleration"].includes(overlay.displayMode) && !windNinjaAvailable) overlay.displayMode = "speed";
   tabs.forEach((tab) => {
