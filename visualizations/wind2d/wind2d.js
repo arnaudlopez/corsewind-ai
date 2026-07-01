@@ -40,6 +40,8 @@ const VIEW_BOUNDS = [
 const INITIAL_ZOOM = 8;
 const KNOTS_PER_MPS = 1.943844492;
 const DEFAULT_SCALE_MAX_KT = 14;
+const SPEED_DATA_MODE = "speed_data";
+const DEFAULT_SPEED_DATA_QUANTUM_KT = 0.1;
 const DISPLAY_TIME_ZONE = "Europe/Paris";
 const CFD_INFLUENCE_RADIUS_M = 260;
 const CFD_SIGMA_M = 105;
@@ -186,6 +188,7 @@ class AromeWindOverlay extends L.Layer {
   setScaleMaxKnots(value) {
     this.scaleMaxKnots = Math.max(6, Math.min(80, Number(value) || DEFAULT_SCALE_MAX_KT));
     this.heatDirty = true;
+    this.recolorRasterDataLayer();
     // The scale value is part of the heat-tile cache key, so we never need to wipe the cache:
     // each scale produces distinct keys and the LRU evicts old ones. Debounce the heavy redraw
     // so dragging the slider doesn't re-render every tile on each input event.
@@ -320,6 +323,10 @@ class AromeWindOverlay extends L.Layer {
         tileState.activeLayer.redraw();
       }
     }
+  }
+
+  recolorRasterDataLayer() {
+    this.rasterTiles?.activeLayer?.recolorTiles?.();
   }
 
   syncCanvasVisibility() {
@@ -2415,6 +2422,7 @@ function buildRasterTileState(payload) {
       : null,
     activeLayer: null,
     activeKey: null,
+    activeRenderer: null,
   };
 }
 
@@ -2449,6 +2457,15 @@ function rasterStateAvailable(overlay, state) {
   return !step.modes || step.modes.includes(mode);
 }
 
+function rasterSpeedDataAvailable(overlay, state) {
+  if (!state || rasterMode(overlay) !== "speed") return false;
+  if (!state.dataUrlTemplate || !state.encodings?.[SPEED_DATA_MODE]) return false;
+  if (!state.modes?.has(SPEED_DATA_MODE)) return false;
+  const key = rasterStepKeyForState(state, overlay.activeLeadHour);
+  const step = state.steps?.find((item) => item.key === key);
+  return Boolean(step && (!step.modes || step.modes.includes(SPEED_DATA_MODE)));
+}
+
 function activeModelRasterAvailable(overlay) {
   return rasterStateAvailable(overlay, overlay.rasterTilesByModel?.[rawModelKey(overlay)]);
 }
@@ -2459,6 +2476,158 @@ function isRasterTileAvailable(overlay) {
 
 function isRasterTileActive(overlay) {
   return Boolean(isRasterTileAvailable(overlay) && overlay.rasterTiles?.activeLayer);
+}
+
+function modelRasterUrl(template, step, mode, coords, version) {
+  const tileTemplate = template.replace("{step}", step).replace("{mode}", mode);
+  const url = tileTemplate
+    .replace("{z}", coords.z)
+    .replace("{x}", coords.x)
+    .replace("{y}", coords.y);
+  return `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`;
+}
+
+function speedDataQuantumKt(state) {
+  return Number(state?.encodings?.[SPEED_DATA_MODE]?.quantumKt) || DEFAULT_SPEED_DATA_QUANTUM_KT;
+}
+
+function buildSpeedDataLut(scaleMaxKnots, renderAlpha, quantumKt) {
+  const lut = new Uint8ClampedArray(65536 * 4);
+  for (let q = 0; q < 65536; q += 1) {
+    const speedKnots = q * quantumKt;
+    const intensity = Math.max(0, Math.min(1, speedKnots / scaleMaxKnots));
+    const rgb = colorArray(intensity);
+    const offset = q * 4;
+    lut[offset] = rgb[0];
+    lut[offset + 1] = rgb[1];
+    lut[offset + 2] = rgb[2];
+    lut[offset + 3] = Math.round(Math.min(220, 84 + Math.pow(intensity, 0.68) * 146) * renderAlpha);
+  }
+  return lut;
+}
+
+function speedDataLutForLayer(layer, overlay, state) {
+  const quantumKt = speedDataQuantumKt(state);
+  const renderAlpha = Math.max(0, Math.min(1, Number(state.renderAlpha ?? 1)));
+  const key = `${Math.round(overlay.scaleMaxKnots * 10)}:${renderAlpha}:${quantumKt}`;
+  if (layer._speedDataLutKey !== key) {
+    layer._speedDataLutKey = key;
+    layer._speedDataLut = buildSpeedDataLut(overlay.scaleMaxKnots, renderAlpha, quantumKt);
+  }
+  return layer._speedDataLut;
+}
+
+function recolorSpeedDataRecord(record, lut) {
+  if (!record.sourceData || !record.ctx || !record.width || !record.height) return;
+  const output = record.ctx.createImageData(record.width, record.height);
+  const source = record.sourceData;
+  const target = output.data;
+  for (let offset = 0; offset < source.length; offset += 4) {
+    const coverage = source[offset + 3];
+    if (!coverage) {
+      target[offset + 3] = 0;
+      continue;
+    }
+    const q = source[offset] | (source[offset + 1] << 8);
+    const lutOffset = q * 4;
+    target[offset] = lut[lutOffset];
+    target[offset + 1] = lut[lutOffset + 1];
+    target[offset + 2] = lut[lutOffset + 2];
+    target[offset + 3] = Math.round(lut[lutOffset + 3] * (coverage / 255));
+  }
+  record.ctx.putImageData(output, 0, 0);
+}
+
+function createSpeedDataTileLayer(overlay, state, step, version) {
+  const dataTemplate = state.dataUrlTemplate || state.urlTemplate;
+  const SpeedDataLayer = L.GridLayer.extend({
+    createTile(coords, done) {
+      const tileSize = this.getTileSize().x || 256;
+      const tile = document.createElement("canvas");
+      tile.className = "wind-speed-data-tile";
+      tile.width = tileSize;
+      tile.height = tileSize;
+      tile.style.width = `${tileSize}px`;
+      tile.style.height = `${tileSize}px`;
+      const ctx = tile.getContext("2d", { alpha: true });
+      const record = { tile, ctx, sourceData: null, width: tile.width, height: tile.height };
+      tile._windSpeedDataRecord = record;
+      this._windSpeedDataRecords.add(record);
+
+      if (state.bounds && !this._tileCoordsToBounds(coords).intersects(state.bounds)) {
+        done?.(null, tile);
+        return tile;
+      }
+
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = () => {
+        try {
+          tile.width = image.naturalWidth || tileSize;
+          tile.height = image.naturalHeight || tileSize;
+          tile.style.width = `${tileSize}px`;
+          tile.style.height = `${tileSize}px`;
+          record.width = tile.width;
+          record.height = tile.height;
+          const decodeCanvas = document.createElement("canvas");
+          decodeCanvas.width = record.width;
+          decodeCanvas.height = record.height;
+          const decodeCtx = decodeCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
+          decodeCtx.drawImage(image, 0, 0);
+          record.sourceData = decodeCtx.getImageData(0, 0, record.width, record.height).data;
+          record.ctx = tile.getContext("2d", { alpha: true });
+          recolorSpeedDataRecord(record, speedDataLutForLayer(this, overlay, state));
+          done?.(null, tile);
+        } catch (error) {
+          done?.(error, tile);
+        }
+      };
+      image.onerror = () => done?.(new Error(`Speed data tile failed: ${image.src}`), tile);
+      image.src = modelRasterUrl(dataTemplate, step, SPEED_DATA_MODE, coords, version);
+      return tile;
+    },
+    recolorTiles() {
+      if (this._windSpeedDataRecolorFrame) window.cancelAnimationFrame(this._windSpeedDataRecolorFrame);
+      this._windSpeedDataRecolorFrame = window.requestAnimationFrame(() => {
+        this._windSpeedDataRecolorFrame = null;
+        const lut = speedDataLutForLayer(this, overlay, state);
+        for (const record of this._windSpeedDataRecords) recolorSpeedDataRecord(record, lut);
+      });
+    },
+    _updateOpacity() {
+      if (!this._map) return;
+      if (this._fadeFrame) {
+        L.Util.cancelAnimFrame(this._fadeFrame);
+        this._fadeFrame = null;
+      }
+      const loading = !this._noTilesToLoad();
+      for (const key in this._tiles) {
+        const tile = this._tiles[key];
+        if (!tile?.el) continue;
+        const visible = Boolean(tile.current);
+        tile.el.style.opacity = visible ? "1" : "0";
+        tile.el.style.visibility = visible ? "visible" : "hidden";
+      }
+      if (!loading) this._pruneTiles();
+    },
+  });
+
+  const layer = new SpeedDataLayer({
+    bounds: state.bounds || undefined,
+    minZoom: rasterDisplayMinZoom(state),
+    maxNativeZoom: Math.max(...state.zooms),
+    maxZoom: 16,
+    opacity: 1,
+    keepBuffer: 4,
+    updateWhenZooming: false,
+    pane: "windHeatPane",
+  });
+  layer._windSpeedDataRecords = new Set();
+  layer.on("tileunload", (event) => {
+    const record = event.tile?._windSpeedDataRecord;
+    if (record) layer._windSpeedDataRecords.delete(record);
+  });
+  return layer;
 }
 
 function updateRasterTileLayer(overlay) {
@@ -2485,27 +2654,29 @@ function updateRasterTileLayer(overlay) {
   }
   const mode = rasterMode(overlay);
   const step = rasterStepKey(overlay);
-  const activeKey = `${step}:${mode}`;
+  const useSpeedData = rasterSpeedDataAvailable(overlay, overlay.rasterTiles);
+  const renderer = useSpeedData ? SPEED_DATA_MODE : "color";
+  const activeKey = `${step}:${mode}:${renderer}`;
   if (overlay.rasterTiles.activeKey === activeKey && overlay.rasterTiles.activeLayer) return;
   if (overlay.rasterTiles.activeLayer) overlay.map.removeLayer(overlay.rasterTiles.activeLayer);
   // Version tiles by the model run (stable while the run is unchanged) rather than the per-load
   // DATA_VERSION (Date.now()): combined with immutable Cache-Control on the server, the browser
   // then reuses cached tiles across reloads and pan-backs, and only refetches when a new run
   // publishes (runTimeUtc changes → new URL → new layer is rebuilt by the manifest poll).
-  const tileTemplate = overlay.rasterTiles.urlTemplate.replace("{step}", step).replace("{mode}", mode);
   const tileVersion = overlay.rasterTiles.runTimeUtc || DATA_VERSION;
-  const url = `${tileTemplate}${tileTemplate.includes("?") ? "&" : "?"}v=${encodeURIComponent(tileVersion)}`;
   const state = overlay.rasterTiles;
-  const layer = L.tileLayer(url, {
-    bounds: state.bounds || undefined,
-    minZoom: rasterDisplayMinZoom(state),
-    maxNativeZoom: Math.max(...state.zooms),
-    maxZoom: 16,
-    opacity: mode === "cloud_rain" ? 1 : state.opacity ?? 0.86,
-    keepBuffer: 4,
-    updateWhenZooming: false,
-    pane: "windHeatPane",
-  });
+  const layer = useSpeedData
+    ? createSpeedDataTileLayer(overlay, state, step, tileVersion)
+    : L.tileLayer(modelRasterUrl(state.urlTemplate, step, mode, { z: "{z}", x: "{x}", y: "{y}" }, tileVersion), {
+        bounds: state.bounds || undefined,
+        minZoom: rasterDisplayMinZoom(state),
+        maxNativeZoom: Math.max(...state.zooms),
+        maxZoom: 16,
+        opacity: mode === "cloud_rain" ? 1 : state.opacity ?? 0.86,
+        keepBuffer: 4,
+        updateWhenZooming: false,
+        pane: "windHeatPane",
+      });
   // Once the raster has painted, mark the model state and hide the JS heat fallback. everLoaded
   // persists on the state across step changes, so heat only re-shows for a genuinely new run.
   layer.on("load", () => {
@@ -2515,6 +2686,7 @@ function updateRasterTileLayer(overlay) {
   });
   state.activeLayer = layer.addTo(overlay.map);
   overlay.rasterTiles.activeKey = activeKey;
+  overlay.rasterTiles.activeRenderer = renderer;
 }
 
 function windNinjaCorsicaMode(overlay) {
@@ -3275,9 +3447,10 @@ async function refreshWindNinja50mManifest(payload, overlay) {
 function rasterManifestSignature(state) {
   if (!state) return "";
   const steps = (state.steps || [])
-    .map((step) => `${step.key || ""}:${step.lead_hour ?? ""}:${step.lead_minutes ?? ""}:${step.valid_time_utc || ""}`)
+    .map((step) => `${step.key || ""}:${step.lead_hour ?? ""}:${step.lead_minutes ?? ""}:${step.valid_time_utc || ""}:${(step.modes || []).join(",")}`)
     .join("|");
-  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileFormat || ""}:${state.tileSet || ""}:${state.tileCount || 0}:${steps}`;
+  const modes = Array.from(state.modes || []).sort().join(",");
+  return `${state.model || ""}:${state.runTimeUtc || state.generatedAt || ""}:${state.tileFormat || ""}:${state.dataTileFormat || ""}:${state.tileSet || ""}:${state.tileCount || 0}:${state.dataTileCount || 0}:${modes}:${steps}`;
 }
 
 // Load the pre-baked colour-tile manifest for each raw model (./tiles/<model>/manifest.json).

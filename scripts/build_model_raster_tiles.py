@@ -38,6 +38,8 @@ DEFAULT_SCALE_MAX_KT = 14.0
 # The raw models are ~1 km resolution; z10 is enough native detail for Corsica and Leaflet
 # overzooms beyond maxNativeZoom for closer views. Higher native zooms multiply rebuild time.
 DEFAULT_ZOOMS = tuple(range(8, 11))
+SPEED_DATA_MODE = "speed_data"
+SPEED_DATA_QUANTUM_KT = 0.1
 
 # Per-model source JSON and the render alpha the client applies to each raw layer
 # (see rawModelFieldAt defaults in wind2d.js). Baking this keeps tiles visually identical
@@ -163,6 +165,18 @@ def render_tile(speed_kt: np.ndarray, scale_max_kt: float, render_alpha: float) 
     if not np.any(alpha > 1):
         return None
     rgba = np.dstack([rgb, alpha]).astype(np.uint8)
+    return Image.fromarray(rgba, mode="RGBA")
+
+
+def render_speed_data_tile(speed_kt: np.ndarray) -> Image.Image | None:
+    valid = np.isfinite(speed_kt)
+    if not np.any(valid):
+        return None
+    speed_q = np.clip(np.rint(np.nan_to_num(speed_kt, nan=0.0) / SPEED_DATA_QUANTUM_KT), 0, 65535).astype(np.uint16)
+    rgba = np.zeros((*speed_kt.shape, 4), dtype=np.uint8)
+    rgba[..., 0] = speed_q & 0xFF
+    rgba[..., 1] = speed_q >> 8
+    rgba[..., 3] = np.where(valid, 255, 0).astype(np.uint8)
     return Image.fromarray(rgba, mode="RGBA")
 
 
@@ -305,8 +319,10 @@ def build(
 
     manifest_steps: list[dict[str, Any]] = []
     seen_step_keys: set[str] = set()
-    manifest_modes: set[str] = {"speed"}
+    manifest_modes: set[str] = {"speed", SPEED_DATA_MODE}
     tile_count = 0
+    color_tile_count = 0
+    data_tile_count = 0
     render_seconds = 0.0
     encode_seconds = 0.0
     for step in steps:
@@ -320,7 +336,7 @@ def build(
         cloud_pct = np.array(step["cloud_cover_pct"], dtype=np.float32) if step.get("cloud_cover_pct") is not None else None
         precipitation_mm = np.array(step["precipitation_mm"], dtype=np.float32) if step.get("precipitation_mm") is not None else None
         has_weather = cloud_pct is not None or precipitation_mm is not None
-        step_modes = ["speed"]
+        step_modes = ["speed", SPEED_DATA_MODE]
         if has_weather:
             step_modes.append("cloud_rain")
             manifest_modes.add("cloud_rain")
@@ -332,6 +348,7 @@ def build(
                     lons, lats = tile_pixel_to_lonlat(z, x_tile, y_tile, px, py, out_px)
                     speed_kt = bilinear_wgs84(speed_ms, bbox, lons, lats) * KNOTS_PER_MPS
                     image = render_tile(speed_kt, scale_max_kt, render_alpha)
+                    data_image = render_speed_data_tile(speed_kt)
                     render_seconds += time.perf_counter() - render_started
                     if image is None:
                         pass
@@ -345,6 +362,15 @@ def build(
                             image.save(path, compress_level=2)
                         encode_seconds += time.perf_counter() - encode_started
                         tile_count += 1
+                        color_tile_count += 1
+                    if data_image is not None:
+                        data_path = staging_root / step_key / SPEED_DATA_MODE / str(z) / str(x_tile) / f"{y_tile}.png"
+                        data_path.parent.mkdir(parents=True, exist_ok=True)
+                        encode_started = time.perf_counter()
+                        data_image.save(data_path, compress_level=2)
+                        encode_seconds += time.perf_counter() - encode_started
+                        tile_count += 1
+                        data_tile_count += 1
                     if has_weather:
                         weather_render_started = time.perf_counter()
                         cloud_tile = bilinear_wgs84(cloud_pct, bbox, lons, lats) if cloud_pct is not None else None
@@ -386,6 +412,16 @@ def build(
         "encoding": "color",
         "tileFormat": ext,
         "tileSet": tile_set,
+        "dataTileFormat": "png",
+        "dataUrlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{SPEED_DATA_MODE}/{{z}}/{{x}}/{{y}}.png",
+        "encodings": {
+            SPEED_DATA_MODE: {
+                "type": "u16_kt_rg_alpha",
+                "quantumKt": SPEED_DATA_QUANTUM_KT,
+                "urlMode": SPEED_DATA_MODE,
+                "tileFormat": "png",
+            }
+        },
         "webpQuality": webp_quality if ext == "webp" else None,
         "webpMethod": webp_method if ext == "webp" else None,
         "steps": manifest_steps,
@@ -394,6 +430,8 @@ def build(
         "renderAlpha": render_alpha,
         "opacity": 1.0,
         "tileCount": tile_count,
+        "colorTileCount": color_tile_count,
+        "dataTileCount": data_tile_count,
         "source": {"json": str(json_path.relative_to(ROOT))},
     }
     publish_seconds = 0.0
