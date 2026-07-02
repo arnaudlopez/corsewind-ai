@@ -1624,3 +1624,69 @@ Interpretation:
 - the sample is still too small and too morning-biased for promotion;
 - this rail is now ready to be tested by the full-day and multi-day shadow
   campaign.
+
+## Shadow Candidate Impact Audit v1
+
+Added:
+
+- `scripts/ml_dataset/audit_shadow_candidate_impact.py`
+
+Hooked into:
+
+- `scripts/ml_dataset/run_shadow_suite_postprocess.sh`
+- `scripts/ml_dataset/run_shadow_multi_day_rollup.sh`
+- `scripts/ml_dataset/decide_shadow_promotion.py`
+- `scripts/ml_dataset/plan_next_nowcasting_specialists.py`
+
+Purpose:
+
+- audit local regressions for each actual promotion candidate, not only for
+  `threshold_guard_v1`;
+- make the final promotion decision candidate-specific;
+- make the next-specialist plan point to the real weak cells of the current
+  best candidate.
+
+Current z2 artifact:
+
+`/srv/data/corsewind/ml_dataset/live_inference/shadow_rollups/shadow_rollup_latest/shadow_candidate_impact_audit.md`
+
+Current tiny-sample result on `144` joined rows:
+
+| Target | Candidate | Local Risk Flags |
+| --- | --- | ---: |
+| wind | `high_event_guard` | 0 |
+| wind | `threshold_guard` | 0 |
+| gust | `local_fallback_guard` | 2 |
+| gust | `threshold_guard` | 7 |
+
+Current best candidates:
+
+| Target | Best Candidate | RMSE m/s | MAE m/s | Gain vs Raw m/s | Gain vs Champion m/s |
+| --- | --- | ---: | ---: | ---: | ---: |
+| wind | `high_event_guard` | 1.154 | 0.849 | 0.404 | 0.227 |
+| gust | `local_fallback_guard` | 1.437 | 1.155 | 0.349 | 0.588 |
+
+Current decision:
+
+```text
+do_not_promote
+```
+
+Why:
+
+- evidence gate is not ready: `1/2` days, `2/6` cases, `2/6` shadow cases,
+  `144/500` joined rows;
+- gust `local_fallback_guard` still has local risk on:
+  - `spot_id=lfvf`, worse than raw by `0.842 kt`;
+  - `spot_id=lfkj`, worse than guarded stacker by `0.833 kt`;
+- wind `high_event_guard` has no local risk flag on the current sample, but it
+  still slightly misses the `wind >=15kt` CSI non-regression gate versus raw.
+
+Interpretation:
+
+- the wind path is now clearer: keep collecting evidence, then focus the next
+  specialist on threshold/event calibration rather than local fallback;
+- the gust path is promising globally, but not promotion-safe until the
+  `lfvf/lfkj` risk persists or disappears across more fresh days;
+- do not convert these two spot risks into prod rules yet, because the current
+  sample is too small and could overfit.
