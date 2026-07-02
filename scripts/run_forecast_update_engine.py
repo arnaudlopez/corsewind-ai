@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import shlex
 import signal
 import subprocess
@@ -75,6 +76,44 @@ SOURCE_LAYER_PATHS = {
     "moloch": MOLOCH_LAYER,
     "icon2i": ICON2I_LAYER,
 }
+DEFAULT_ML_ROOT = Path(os.getenv("ML_DATASET_ROOT", str(ROOT / "data/processed/ml_dataset")))
+DEFAULT_ML_REGISTRY = ROOT / "configs/ml_spots.json"
+DEFAULT_ML_DATASET_ROOT = DEFAULT_ML_ROOT / "model_runs"
+DEFAULT_ML_MODEL_SAMPLES_ROOT = DEFAULT_ML_ROOT / "model_samples"
+DEFAULT_ML_NWP_EXTRA_FIELDS_RAW_ROOT = DEFAULT_ML_ROOT / "meteo_france_nwp/raw/extra_fields"
+DEFAULT_ML_NWP_EXTRA_FIELDS_SAMPLES_ROOT = DEFAULT_ML_ROOT / "meteo_france_nwp/extra_field_samples"
+DEFAULT_ML_NWP_VERTICAL_PROFILES_RAW_ROOT = DEFAULT_ML_ROOT / "meteo_france_nwp/raw/vertical_profiles"
+DEFAULT_ML_NWP_VERTICAL_PROFILES_SAMPLES_ROOT = DEFAULT_ML_ROOT / "meteo_france_nwp/vertical_profiles"
+DEFAULT_ML_FEATURE_STORE_ROOT = DEFAULT_ML_ROOT / "feature_store"
+DEFAULT_ML_COPERNICUS_SST_RAW_ROOT = DEFAULT_ML_ROOT / "copernicus_marine/raw/sst"
+DEFAULT_ML_COPERNICUS_SST_SAMPLES_ROOT = DEFAULT_ML_ROOT / "copernicus_marine/sst_samples"
+DEFAULT_ML_EUMETSAT_CLOUD_MASK_RAW_ROOT = DEFAULT_ML_ROOT / "eumetsat/raw/cloud_mask"
+DEFAULT_ML_EUMETSAT_CLOUD_MASK_SAMPLES_ROOT = DEFAULT_ML_ROOT / "eumetsat/cloud_mask_samples"
+DEFAULT_ML_EUMETSAT_CLOUD_MASK_COLLECTION_ID = "EO:EUM:DAT:0678"
+DEFAULT_ML_EUMETSAT_BBOX = "7.5,41.0,10.2,43.3"
+EUMETSAT_THERMAL_PRODUCTS = {
+    "cloud_type": {
+        "status_key": "eumetsat_cloud_type",
+        "collection_id": "EO:EUM:DAT:0680",
+        "raw_root": DEFAULT_ML_ROOT / "eumetsat/raw/cloud_type",
+        "samples_root": DEFAULT_ML_ROOT / "eumetsat/cloud_type_samples",
+        "enable_attr": "enable_ml_eumetsat_cloud_type",
+    },
+    "land_surface_temperature": {
+        "status_key": "eumetsat_land_surface_temperature",
+        "collection_id": "EO:EUM:DAT:1088",
+        "raw_root": DEFAULT_ML_ROOT / "eumetsat/raw/land_surface_temperature",
+        "samples_root": DEFAULT_ML_ROOT / "eumetsat/land_surface_temperature_samples",
+        "enable_attr": "enable_ml_eumetsat_land_surface_temperature",
+    },
+    "global_instability_indices": {
+        "status_key": "eumetsat_global_instability_indices",
+        "collection_id": "EO:EUM:DAT:0683",
+        "raw_root": DEFAULT_ML_ROOT / "eumetsat/raw/global_instability_indices",
+        "samples_root": DEFAULT_ML_ROOT / "eumetsat/global_instability_indices_samples",
+        "enable_attr": "enable_ml_eumetsat_global_instability_indices",
+    },
+}
 SHUTDOWN_REQUESTED = False
 ACTIVE_PROCESS: subprocess.Popen[str] | None = None
 
@@ -117,6 +156,31 @@ def env_bool(name: str, default: bool) -> bool:
     if normalized in {"0", "false", "no", "n", "off", ""}:
         return False
     return default
+
+
+def env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def env_int_list(name: str, default: list[int]) -> list[int]:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return list(default)
+    parsed = []
+    for token in re.split(r"[, ]+", value.strip()):
+        if not token:
+            continue
+        try:
+            parsed.append(int(token))
+        except ValueError:
+            return list(default)
+    return parsed or list(default)
 
 
 def request_shutdown(signum: int, _frame: Any) -> None:
@@ -576,9 +640,706 @@ def publish_wind2d_json(args: argparse.Namespace, commands: list[dict[str, Any]]
     commands.append(result)
 
 
+def archive_model_layer_command(source: str, output_root: Path) -> tuple[str, ...]:
+    return (
+        "scripts/ml_dataset/archive_model_layer_snapshot.py",
+        "--source",
+        source,
+        "--input",
+        str(SOURCE_LAYER_PATHS[source].relative_to(ROOT)),
+        "--output-root",
+        str(output_root),
+    )
+
+
+def sample_model_layer_command(source: str, output_root: Path) -> tuple[str, ...]:
+    return (
+        "scripts/ml_dataset/sample_model_layers_at_spots.py",
+        "--source",
+        source,
+        "--input",
+        str(SOURCE_LAYER_PATHS[source].relative_to(ROOT)),
+        "--output-root",
+        str(output_root),
+    )
+
+
+def collect_nwp_extra_fields_command(source: str, args: argparse.Namespace) -> tuple[str, ...]:
+    command = [
+        "scripts/ml_dataset/collect_meteo_france_nwp_spot_features.py",
+        "--source",
+        source,
+        "--input",
+        str(SOURCE_LAYER_PATHS[source].relative_to(ROOT)),
+        "--raw-root",
+        str(args.ml_nwp_extra_fields_raw_root),
+        "--output-root",
+        str(args.ml_nwp_extra_fields_samples_root),
+        "--max-steps",
+        str(args.ml_nwp_extra_fields_max_steps),
+        "--request-sleep-sec",
+        str(args.ml_nwp_extra_fields_request_sleep_sec),
+    ]
+    if args.ml_nwp_extra_fields_include_context_spots:
+        command.append("--include-context-spots")
+    return tuple(command)
+
+
+def collect_nwp_extra_fields_if_needed(
+    source: str,
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+) -> None:
+    source_status = status.get("sources", {}).get(source, {})
+    if not args.enable_ml_nwp_extra_fields or source not in {"arome", "aromepi"}:
+        return
+    if source_status.get("status") not in {"updated", "unchanged"}:
+        return
+    try:
+        result = run_command(collect_nwp_extra_fields_command(source, args), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        source_status["ml_nwp_extra_fields"] = {
+            "enabled": True,
+            "status": "failed",
+            "raw_root": str(args.ml_nwp_extra_fields_raw_root),
+            "samples_root": str(args.ml_nwp_extra_fields_samples_root),
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        }
+        return
+    parsed = parse_command_json(result) or {}
+    source_status["ml_nwp_extra_fields"] = {
+        "enabled": True,
+        "status": result.get("status"),
+        "raw_root": str(args.ml_nwp_extra_fields_raw_root),
+        "samples_root": str(args.ml_nwp_extra_fields_samples_root),
+        "row_count": parsed.get("row_count"),
+        "step_count": parsed.get("step_count"),
+        "features": parsed.get("features"),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+    }
+
+
+def collect_nwp_vertical_profiles_command(args: argparse.Namespace) -> tuple[str, ...]:
+    command = [
+        "scripts/ml_dataset/collect_meteo_france_vertical_profiles.py",
+        "--input",
+        str(AROME_LAYER.relative_to(ROOT)),
+        "--raw-root",
+        str(args.ml_nwp_vertical_profiles_raw_root),
+        "--output-root",
+        str(args.ml_nwp_vertical_profiles_samples_root),
+        "--max-steps",
+        str(args.ml_nwp_vertical_profiles_max_steps),
+        "--request-sleep-sec",
+        str(args.ml_nwp_vertical_profiles_request_sleep_sec),
+    ]
+    for level in args.ml_nwp_vertical_profiles_pressure_levels_hpa:
+        command.extend(["--pressure-level-hpa", str(level)])
+    if args.ml_nwp_vertical_profiles_include_context_spots:
+        command.append("--include-context-spots")
+    return tuple(command)
+
+
+def collect_nwp_vertical_profiles_if_needed(
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+) -> None:
+    source_status = status.get("sources", {}).get("arome", {})
+    if not args.enable_ml_nwp_vertical_profiles:
+        return
+    if source_status.get("status") not in {"updated", "unchanged"}:
+        return
+    try:
+        result = run_command(collect_nwp_vertical_profiles_command(args), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        source_status["ml_nwp_vertical_profiles"] = {
+            "enabled": True,
+            "status": "failed",
+            "raw_root": str(args.ml_nwp_vertical_profiles_raw_root),
+            "samples_root": str(args.ml_nwp_vertical_profiles_samples_root),
+            "pressure_levels_hpa": list(args.ml_nwp_vertical_profiles_pressure_levels_hpa),
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        }
+        return
+    parsed = parse_command_json(result) or {}
+    source_status["ml_nwp_vertical_profiles"] = {
+        "enabled": True,
+        "status": result.get("status"),
+        "raw_root": str(args.ml_nwp_vertical_profiles_raw_root),
+        "samples_root": str(args.ml_nwp_vertical_profiles_samples_root),
+        "row_count": parsed.get("row_count"),
+        "step_count": parsed.get("step_count"),
+        "features": parsed.get("features"),
+        "pressure_levels_hpa": parsed.get("pressure_levels_hpa"),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+    }
+
+
+def build_ml_feature_store_command(args: argparse.Namespace) -> tuple[str, ...]:
+    return (
+        "scripts/ml_dataset/build_spot_feature_store.py",
+        "--ml-root",
+        str(args.ml_root),
+        "--registry",
+        str(args.ml_registry),
+        "--output-root",
+        str(args.ml_feature_store_root),
+    )
+
+
+def build_ml_feature_store_if_needed(
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+) -> None:
+    status["ml_feature_store"] = {
+        "enabled": bool(args.enable_ml_feature_store),
+        "root": str(args.ml_feature_store_root),
+    }
+    if not args.enable_ml_feature_store:
+        status["ml_feature_store"]["status"] = "disabled"
+        return
+    try:
+        result = run_command(build_ml_feature_store_command(args), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        status["ml_feature_store"].update({
+            "status": "failed",
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        })
+        return
+    parsed = parse_command_json(result) or {}
+    status["ml_feature_store"].update({
+        "status": result.get("status"),
+        "row_count": parsed.get("row_count"),
+        "spot_count": parsed.get("spots"),
+        "first_target_time_utc": parsed.get("first_target_time_utc"),
+        "last_target_time_utc": parsed.get("last_target_time_utc"),
+        "outputs": parsed.get("outputs"),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+    })
+
+
+def copernicus_sst_window(args: argparse.Namespace, now: datetime) -> tuple[datetime, datetime]:
+    if args.ml_copernicus_sst_start_datetime and args.ml_copernicus_sst_end_datetime:
+        return (
+            parse_utc_datetime(args.ml_copernicus_sst_start_datetime),
+            parse_utc_datetime(args.ml_copernicus_sst_end_datetime),
+        )
+    end = now - timedelta(hours=args.ml_copernicus_sst_end_lag_hours)
+    end = end.replace(minute=0, second=0, microsecond=0)
+    start = end - timedelta(hours=args.ml_copernicus_sst_window_hours - 1)
+    return start, end
+
+
+def copernicus_cli_datetime(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def copernicus_sst_filename(start: datetime, end: datetime) -> str:
+    return f"sst_corse_{start:%Y%m%dT%H}_{end:%Y%m%dT%H}.nc"
+
+
+def collect_copernicus_sst_command(args: argparse.Namespace, now: datetime) -> tuple[str, ...]:
+    start, end = copernicus_sst_window(args, now)
+    command = [
+        "scripts/ml_dataset/collect_copernicus_marine_sst.py",
+        "--start-datetime",
+        copernicus_cli_datetime(start),
+        "--end-datetime",
+        copernicus_cli_datetime(end),
+        "--output-filename",
+        copernicus_sst_filename(start, end),
+        "--raw-root",
+        str(args.ml_copernicus_sst_raw_root),
+        "--output-root",
+        str(args.ml_copernicus_sst_samples_root),
+        "--log-level",
+        args.ml_copernicus_sst_log_level,
+    ]
+    if args.ml_copernicus_sst_include_context_spots:
+        command.append("--include-context-spots")
+    return tuple(command)
+
+
+def collect_copernicus_sst_if_needed(
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+    now: datetime,
+) -> None:
+    status["copernicus_marine_sst"] = {
+        "enabled": bool(args.enable_ml_copernicus_sst),
+        "raw_root": str(args.ml_copernicus_sst_raw_root),
+        "samples_root": str(args.ml_copernicus_sst_samples_root),
+    }
+    if not args.enable_ml_copernicus_sst:
+        status["copernicus_marine_sst"]["status"] = "disabled"
+        return
+    start, end = copernicus_sst_window(args, now)
+    status["copernicus_marine_sst"].update({
+        "status": "pending",
+        "start_datetime_utc": iso_utc(start),
+        "end_datetime_utc": iso_utc(end),
+    })
+    try:
+        result = run_command(collect_copernicus_sst_command(args, now), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        status["copernicus_marine_sst"].update({
+            "status": "failed",
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        })
+        return
+    status["copernicus_marine_sst"].update({
+        "status": result.get("status"),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+    })
+
+
+def eumetsat_cloud_mask_window(args: argparse.Namespace, now: datetime) -> tuple[datetime, datetime]:
+    if args.ml_eumetsat_cloud_mask_start_datetime and args.ml_eumetsat_cloud_mask_end_datetime:
+        return (
+            parse_utc_datetime(args.ml_eumetsat_cloud_mask_start_datetime),
+            parse_utc_datetime(args.ml_eumetsat_cloud_mask_end_datetime),
+        )
+    end = now - timedelta(minutes=args.ml_eumetsat_cloud_mask_end_lag_minutes)
+    end = end.replace(second=0, microsecond=0)
+    start = end - timedelta(minutes=args.ml_eumetsat_cloud_mask_window_minutes)
+    return start, end
+
+
+def eumetsat_cli_datetime(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def collect_eumetsat_cloud_mask_command(args: argparse.Namespace, now: datetime) -> tuple[str, ...]:
+    start, end = eumetsat_cloud_mask_window(args, now)
+    command = [
+        "scripts/ml_dataset/collect_eumetsat_cloud_mask.py",
+        "--collection-id",
+        args.ml_eumetsat_cloud_mask_collection_id,
+        "--start-datetime",
+        eumetsat_cli_datetime(start),
+        "--end-datetime",
+        eumetsat_cli_datetime(end),
+        "--bbox",
+        args.ml_eumetsat_cloud_mask_bbox,
+        "--raw-root",
+        str(args.ml_eumetsat_cloud_mask_raw_root),
+        "--output-root",
+        str(args.ml_eumetsat_cloud_mask_samples_root),
+        "--max-products",
+        str(args.ml_eumetsat_cloud_mask_max_products),
+        "--radius-cells",
+        str(args.ml_eumetsat_cloud_mask_radius_cells),
+    ]
+    if args.ml_eumetsat_cloud_mask_include_context_spots:
+        command.append("--include-context-spots")
+    if not args.ml_eumetsat_cloud_mask_quality_flags:
+        command.append("--no-quality-flags")
+    return tuple(command)
+
+
+def eumetsat_thermal_window(args: argparse.Namespace, now: datetime) -> tuple[datetime, datetime]:
+    if args.ml_eumetsat_thermal_start_datetime and args.ml_eumetsat_thermal_end_datetime:
+        return (
+            parse_utc_datetime(args.ml_eumetsat_thermal_start_datetime),
+            parse_utc_datetime(args.ml_eumetsat_thermal_end_datetime),
+        )
+    end = now - timedelta(minutes=args.ml_eumetsat_thermal_end_lag_minutes)
+    end = end.replace(second=0, microsecond=0)
+    start = end - timedelta(minutes=args.ml_eumetsat_thermal_window_minutes)
+    return start, end
+
+
+def eumetsat_thermal_product_enabled(product: str, args: argparse.Namespace) -> bool:
+    config = EUMETSAT_THERMAL_PRODUCTS[product]
+    return bool(args.enable_ml_eumetsat_thermal_products or getattr(args, config["enable_attr"]))
+
+
+def eumetsat_product_collection_id(product: str, args: argparse.Namespace) -> str:
+    return str(getattr(args, f"ml_eumetsat_{product}_collection_id"))
+
+
+def eumetsat_product_root(product: str, args: argparse.Namespace, kind: str) -> Path:
+    return getattr(args, f"ml_eumetsat_{product}_{kind}_root")
+
+
+def collect_eumetsat_spot_product_command(product: str, args: argparse.Namespace, now: datetime) -> tuple[str, ...]:
+    start, end = eumetsat_thermal_window(args, now)
+    command = [
+        "scripts/ml_dataset/collect_eumetsat_spot_product.py",
+        "--product",
+        product,
+        "--collection-id",
+        eumetsat_product_collection_id(product, args),
+        "--start-datetime",
+        eumetsat_cli_datetime(start),
+        "--end-datetime",
+        eumetsat_cli_datetime(end),
+        "--bbox",
+        args.ml_eumetsat_thermal_bbox,
+        "--raw-root",
+        str(eumetsat_product_root(product, args, "raw")),
+        "--output-root",
+        str(eumetsat_product_root(product, args, "samples")),
+        "--max-products",
+        str(args.ml_eumetsat_thermal_max_products),
+        "--max-variables",
+        str(args.ml_eumetsat_thermal_max_variables),
+        "--radius-cells",
+        str(args.ml_eumetsat_thermal_radius_cells),
+    ]
+    if args.ml_eumetsat_thermal_include_context_spots:
+        command.append("--include-context-spots")
+    return tuple(command)
+
+
+def default_external_data_state() -> dict[str, Any]:
+    return {
+        "last_poll_at_utc": None,
+        "last_success_at_utc": None,
+        "last_failure_at_utc": None,
+        "last_window_start_utc": None,
+        "last_window_end_utc": None,
+        "last_error": None,
+        "consecutive_failures": 0,
+    }
+
+
+def ensure_external_data_states(state: dict[str, Any]) -> None:
+    external = state.setdefault("external_data", {})
+    for source in ("eumetsat_cloud_mask", *[config["status_key"] for config in EUMETSAT_THERMAL_PRODUCTS.values()]):
+        current = external.setdefault(source, default_external_data_state())
+        for key, value in default_external_data_state().items():
+            current.setdefault(key, value)
+
+
+def external_data_state(state: dict[str, Any], source: str) -> dict[str, Any]:
+    ensure_external_data_states(state)
+    return state["external_data"][source]
+
+
+def external_data_poll_decision(
+    source_state: dict[str, Any],
+    interval_sec: int,
+    args: argparse.Namespace,
+    now: datetime,
+) -> dict[str, Any]:
+    if args.dry_run:
+        return {"due": True, "reason": "dry_run", "next_due_at_utc": iso_utc(now), "interval_sec": interval_sec}
+    backoff = source_backoff_sec(source_state, args)
+    last_failure = utc_datetime_or_none(source_state.get("last_failure_at_utc"))
+    if backoff and last_failure:
+        next_retry = last_failure + timedelta(seconds=backoff)
+        if now < next_retry:
+            return {
+                "due": False,
+                "reason": "error_backoff",
+                "backoff_sec": backoff,
+                "next_due_at_utc": iso_utc(next_retry),
+                "interval_sec": interval_sec,
+            }
+    last_poll = utc_datetime_or_none(source_state.get("last_poll_at_utc"))
+    if last_poll is None:
+        return {"due": True, "reason": "never_polled", "interval_sec": interval_sec}
+    next_poll = last_poll + timedelta(seconds=interval_sec)
+    if now >= next_poll:
+        return {"due": True, "reason": "interval_elapsed", "next_due_at_utc": iso_utc(next_poll), "interval_sec": interval_sec}
+    return {"due": False, "reason": "not_due", "next_due_at_utc": iso_utc(next_poll), "interval_sec": interval_sec}
+
+
+def parse_command_json(result: dict[str, Any]) -> dict[str, Any] | None:
+    text = str(result.get("stdout_tail") or "").strip()
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        return None
+    try:
+        return json.loads(text[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def collect_eumetsat_cloud_mask_if_needed(
+    args: argparse.Namespace,
+    state: dict[str, Any],
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+    now: datetime,
+) -> None:
+    source_state = external_data_state(state, "eumetsat_cloud_mask")
+    start, end = eumetsat_cloud_mask_window(args, now)
+    decision = external_data_poll_decision(
+        source_state,
+        args.ml_eumetsat_cloud_mask_poll_interval_sec,
+        args,
+        now,
+    )
+    status["eumetsat_cloud_mask"] = {
+        "enabled": bool(args.enable_ml_eumetsat_cloud_mask),
+        "decision": decision,
+        "collection_id": args.ml_eumetsat_cloud_mask_collection_id,
+        "bbox": args.ml_eumetsat_cloud_mask_bbox,
+        "raw_root": str(args.ml_eumetsat_cloud_mask_raw_root),
+        "samples_root": str(args.ml_eumetsat_cloud_mask_samples_root),
+        "start_datetime_utc": iso_utc(start),
+        "end_datetime_utc": iso_utc(end),
+        "max_products": args.ml_eumetsat_cloud_mask_max_products,
+        "last_success_at_utc": source_state.get("last_success_at_utc"),
+    }
+    if not args.enable_ml_eumetsat_cloud_mask:
+        status["eumetsat_cloud_mask"]["status"] = "disabled"
+        return
+    if not decision.get("due"):
+        status["eumetsat_cloud_mask"]["status"] = "skipped"
+        return
+    status["eumetsat_cloud_mask"]["status"] = "pending"
+    if not args.dry_run:
+        source_state["last_poll_at_utc"] = utc_now()
+        source_state["last_window_start_utc"] = iso_utc(start)
+        source_state["last_window_end_utc"] = iso_utc(end)
+    try:
+        result = run_command(collect_eumetsat_cloud_mask_command(args, now), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        if not args.dry_run:
+            source_state["last_failure_at_utc"] = utc_now()
+            source_state["last_error"] = str(exc)
+            source_state["consecutive_failures"] = int(source_state.get("consecutive_failures") or 0) + 1
+        status["eumetsat_cloud_mask"].update({
+            "status": "failed",
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        })
+        return
+    parsed = parse_command_json(result) or {}
+    if not args.dry_run:
+        source_state["last_success_at_utc"] = utc_now()
+        source_state["last_failure_at_utc"] = None
+        source_state["last_error"] = None
+        source_state["consecutive_failures"] = 0
+    status["eumetsat_cloud_mask"].update({
+        "status": result.get("status"),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+        "product_count": parsed.get("product_count"),
+        "spot_count": parsed.get("spot_count"),
+        "row_count": parsed.get("row_count"),
+        "written": parsed.get("written"),
+    })
+
+
+def collect_eumetsat_spot_product_if_needed(
+    product: str,
+    args: argparse.Namespace,
+    state: dict[str, Any],
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+    now: datetime,
+) -> None:
+    product_config = EUMETSAT_THERMAL_PRODUCTS[product]
+    status_key = product_config["status_key"]
+    source_state = external_data_state(state, status_key)
+    start, end = eumetsat_thermal_window(args, now)
+    decision = external_data_poll_decision(
+        source_state,
+        args.ml_eumetsat_thermal_poll_interval_sec,
+        args,
+        now,
+    )
+    enabled = eumetsat_thermal_product_enabled(product, args)
+    status[status_key] = {
+        "enabled": enabled,
+        "decision": decision,
+        "product": product,
+        "collection_id": eumetsat_product_collection_id(product, args),
+        "bbox": args.ml_eumetsat_thermal_bbox,
+        "raw_root": str(eumetsat_product_root(product, args, "raw")),
+        "samples_root": str(eumetsat_product_root(product, args, "samples")),
+        "start_datetime_utc": iso_utc(start),
+        "end_datetime_utc": iso_utc(end),
+        "max_products": args.ml_eumetsat_thermal_max_products,
+        "last_success_at_utc": source_state.get("last_success_at_utc"),
+    }
+    if not enabled:
+        status[status_key]["status"] = "disabled"
+        return
+    if not decision.get("due"):
+        status[status_key]["status"] = "skipped"
+        return
+    status[status_key]["status"] = "pending"
+    if not args.dry_run:
+        source_state["last_poll_at_utc"] = utc_now()
+        source_state["last_window_start_utc"] = iso_utc(start)
+        source_state["last_window_end_utc"] = iso_utc(end)
+    try:
+        result = run_command(collect_eumetsat_spot_product_command(product, args, now), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        if not args.dry_run:
+            source_state["last_failure_at_utc"] = utc_now()
+            source_state["last_error"] = str(exc)
+            source_state["consecutive_failures"] = int(source_state.get("consecutive_failures") or 0) + 1
+        status[status_key].update({
+            "status": "failed",
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        })
+        return
+    parsed = parse_command_json(result) or {}
+    if not args.dry_run:
+        source_state["last_success_at_utc"] = utc_now()
+        source_state["last_failure_at_utc"] = None
+        source_state["last_error"] = None
+        source_state["consecutive_failures"] = 0
+    status[status_key].update({
+        "status": result.get("status"),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+        "product_count": parsed.get("product_count"),
+        "spot_count": parsed.get("spot_count"),
+        "row_count": parsed.get("row_count"),
+        "sampled_variables": parsed.get("sampled_variables"),
+        "written": parsed.get("written"),
+    })
+
+
+def archive_source_snapshot_if_needed(
+    source: str,
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    commands: list[dict[str, Any]],
+) -> None:
+    source_status = status.get("sources", {}).get(source, {})
+    if not args.enable_ml_dataset_archive:
+        return
+    if source_status.get("status") not in {"updated", "unchanged"}:
+        return
+    try:
+        result = run_command(archive_model_layer_command(source, args.ml_dataset_root), args.dry_run)
+        commands.append(result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        source_status["ml_dataset_archive"] = {
+            "enabled": True,
+            "status": "failed",
+            "output_root": str(args.ml_dataset_root),
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        }
+        return
+    source_status["ml_dataset_archive"] = {
+        "enabled": True,
+        "status": result.get("status"),
+        "output_root": str(args.ml_dataset_root),
+        "command": {
+            "cmd": result.get("cmd"),
+            "elapsed_s": result.get("elapsed_s"),
+            "returncode": result.get("returncode"),
+        },
+    }
+    samples_root = args.ml_dataset_samples_root
+    try:
+        sample_result = run_command(sample_model_layer_command(source, samples_root), args.dry_run)
+        commands.append(sample_result)
+    except CommandFailed as exc:
+        commands.append(exc.result)
+        source_status["ml_dataset_samples"] = {
+            "enabled": True,
+            "status": "failed",
+            "output_root": str(samples_root),
+            "command": {
+                "cmd": exc.result.get("cmd"),
+                "elapsed_s": exc.result.get("elapsed_s"),
+                "returncode": exc.result.get("returncode"),
+            },
+            "error": str(exc),
+        }
+        return
+    source_status["ml_dataset_samples"] = {
+        "enabled": True,
+        "status": sample_result.get("status"),
+        "output_root": str(samples_root),
+        "command": {
+            "cmd": sample_result.get("cmd"),
+            "elapsed_s": sample_result.get("elapsed_s"),
+            "returncode": sample_result.get("returncode"),
+        },
+    }
+
+
 # Models whose colour overlay is served as pre-baked raster tiles (Google-Maps style) so the
 # Wind2D client renders instantly instead of computing the field per pixel in JavaScript.
 RASTER_TILE_MODELS = ("arome", "aromepi", "moloch", "icon2i")
+RASTER_TILE_EXPECTED_FORMAT = "corsewind.model.raster_tiles.v2"
 RASTER_TILE_EXPECTED_ZOOMS = [8, 9, 10]
 RASTER_TILE_EXPECTED_RENDER_SCALE = 1
 RASTER_TILE_EXPECTED_WEBP_METHOD = 2
@@ -594,12 +1355,29 @@ def model_raster_tiles_command(model: str) -> tuple[str, ...]:
     return ("scripts/build_model_raster_tiles.py", "--model", model)
 
 
-def raster_manifest_needs_rebuild(manifest_path: Path) -> bool:
+def source_layer_has_cloud_rain(layer_path: Path | None) -> bool:
+    if not layer_path or not layer_path.exists():
+        return False
+    try:
+        payload = json.loads(layer_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return any(
+        step.get("cloud_cover_pct") is not None or step.get("precipitation_mm") is not None
+        for step in payload.get("forecast_steps") or []
+    )
+
+
+def raster_manifest_needs_rebuild(manifest_path: Path, layer_path: Path | None = None) -> bool:
     if not manifest_path.exists():
         return True
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
+        return True
+    # Rebuild older manifests on deploy: v2 adds per-step source hashes (incremental rebuilds),
+    # gust_data tiles, and set pruning — older formats miss those.
+    if manifest.get("format") != RASTER_TILE_EXPECTED_FORMAT:
         return True
     # Rebuild older PNG tiles into the smaller WebP format on deploy (old manifests have no
     # tileFormat field, or "png").
@@ -610,6 +1388,8 @@ def raster_manifest_needs_rebuild(manifest_path: Path) -> bool:
     if manifest.get("renderScale") != RASTER_TILE_EXPECTED_RENDER_SCALE:
         return True
     if manifest.get("webpMethod") != RASTER_TILE_EXPECTED_WEBP_METHOD:
+        return True
+    if source_layer_has_cloud_rain(layer_path) and "cloud_rain" not in set(manifest.get("modes") or []):
         return True
     steps = manifest.get("steps") or []
     keys = [step.get("key") for step in steps if step.get("key")]
@@ -714,7 +1494,7 @@ def bootstrap_raster_tiles() -> None:
     for model in RASTER_TILE_MODELS:
         layer_path = SOURCE_LAYER_PATHS.get(model)
         manifest_path = ROOT / "visualizations/wind2d/tiles" / model / "manifest.json"
-        if layer_path and layer_path.exists() and raster_manifest_needs_rebuild(manifest_path):
+        if layer_path and layer_path.exists() and raster_manifest_needs_rebuild(manifest_path, layer_path):
             reason = "missing" if not manifest_path.exists() else "invalid"
             rebuild_models.append(model)
     for model in rebuild_models:
@@ -966,6 +1746,7 @@ def load_state(path: Path) -> dict[str, Any]:
         "history": [],
     }
     ensure_model_states(state)
+    ensure_external_data_states(state)
     return state
 
 
@@ -1140,6 +1921,24 @@ def next_source_sleep_sec(state: dict[str, Any], args: argparse.Namespace) -> in
             continue
         decision = source_poll_decision(source, model_state(state, source), args, now)
         waits.append(seconds_until(utc_datetime_or_none(decision.get("next_due_at_utc")), now))
+    if args.enable_ml_eumetsat_cloud_mask:
+        decision = external_data_poll_decision(
+            external_data_state(state, "eumetsat_cloud_mask"),
+            args.ml_eumetsat_cloud_mask_poll_interval_sec,
+            args,
+            now,
+        )
+        waits.append(seconds_until(utc_datetime_or_none(decision.get("next_due_at_utc")), now))
+    for product, config in EUMETSAT_THERMAL_PRODUCTS.items():
+        if not eumetsat_thermal_product_enabled(product, args):
+            continue
+        decision = external_data_poll_decision(
+            external_data_state(state, config["status_key"]),
+            args.ml_eumetsat_thermal_poll_interval_sec,
+            args,
+            now,
+        )
+        waits.append(seconds_until(utc_datetime_or_none(decision.get("next_due_at_utc")), now))
     if not waits:
         return max(30, args.poll_interval_sec)
     return max(30, min(max(0, item) for item in waits))
@@ -1245,7 +2044,9 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             "aromepi_freshness_target_sec": args.aromepi_freshness_target_sec,
             "aromepi_horizon_hours": args.aromepi_horizon_hours,
             "moloch_poll_interval_sec": args.moloch_poll_interval_sec,
+            "moloch_command_timeout_sec": args.moloch_command_timeout_sec,
             "icon2i_poll_interval_sec": args.icon2i_poll_interval_sec,
+            "icon2i_command_timeout_sec": args.icon2i_command_timeout_sec,
             "source_error_backoff_sec": args.source_error_backoff_sec,
             "source_error_backoff_max_sec": args.source_error_backoff_max_sec,
         },
@@ -1253,6 +2054,27 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
         "changed": False,
         "forced": bool(args.force),
         "cleanup_raw_enabled": bool(args.cleanup_raw),
+        "ml_root": str(args.ml_root),
+        "ml_registry": str(args.ml_registry),
+        "ml_dataset_archive_enabled": bool(args.enable_ml_dataset_archive),
+        "ml_dataset_root": str(args.ml_dataset_root),
+        "ml_dataset_samples_root": str(args.ml_dataset_samples_root),
+        "ml_feature_store_enabled": bool(args.enable_ml_feature_store),
+        "ml_feature_store_root": str(args.ml_feature_store_root),
+        "ml_nwp_extra_fields_enabled": bool(args.enable_ml_nwp_extra_fields),
+        "ml_nwp_extra_fields_raw_root": str(args.ml_nwp_extra_fields_raw_root),
+        "ml_nwp_extra_fields_samples_root": str(args.ml_nwp_extra_fields_samples_root),
+        "ml_nwp_vertical_profiles_enabled": bool(args.enable_ml_nwp_vertical_profiles),
+        "ml_nwp_vertical_profiles_raw_root": str(args.ml_nwp_vertical_profiles_raw_root),
+        "ml_nwp_vertical_profiles_samples_root": str(args.ml_nwp_vertical_profiles_samples_root),
+        "ml_nwp_vertical_profiles_pressure_levels_hpa": list(args.ml_nwp_vertical_profiles_pressure_levels_hpa),
+        "ml_copernicus_sst_enabled": bool(args.enable_ml_copernicus_sst),
+        "ml_copernicus_sst_raw_root": str(args.ml_copernicus_sst_raw_root),
+        "ml_copernicus_sst_samples_root": str(args.ml_copernicus_sst_samples_root),
+        "ml_eumetsat_cloud_mask_enabled": bool(args.enable_ml_eumetsat_cloud_mask),
+        "ml_eumetsat_cloud_mask_raw_root": str(args.ml_eumetsat_cloud_mask_raw_root),
+        "ml_eumetsat_cloud_mask_samples_root": str(args.ml_eumetsat_cloud_mask_samples_root),
+        "ml_eumetsat_thermal_products_enabled": bool(args.enable_ml_eumetsat_thermal_products),
         "arome_lead_hours": list(arome_lead_hours),
         "aromepi_enabled": bool(args.enable_aromepi),
         "moloch_enabled": bool(args.enable_moloch),
@@ -1297,6 +2119,8 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
     if source_decisions.get("aromepi", {}).get("due"):
         refresh_source("aromepi", arome_pi_refresh_command(args), args, state, status, commands)
         publish_wind2d_json(args, commands, "aromepi source refreshed")
+        archive_source_snapshot_if_needed("aromepi", args, status, commands)
+        collect_nwp_extra_fields_if_needed("aromepi", args, status, commands)
         enqueue_raster_tiles_if_source_changed("aromepi", args, status, commands, "aromepi source changed")
         any_source_ran = True
     if source_decisions.get("arome", {}).get("due"):
@@ -1309,6 +2133,9 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             commands,
         )
         publish_wind2d_json(args, commands, "arome source refreshed")
+        archive_source_snapshot_if_needed("arome", args, status, commands)
+        collect_nwp_extra_fields_if_needed("arome", args, status, commands)
+        collect_nwp_vertical_profiles_if_needed(args, status, commands)
         enqueue_raster_tiles_if_source_changed("arome", args, status, commands, "arome source changed")
         any_source_ran = True
     if source_decisions.get("moloch", {}).get("due"):
@@ -1323,6 +2150,7 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             command_timeout_sec=args.moloch_command_timeout_sec,
         )
         publish_wind2d_json(args, commands, "moloch source refreshed")
+        archive_source_snapshot_if_needed("moloch", args, status, commands)
         enqueue_raster_tiles_if_source_changed("moloch", args, status, commands, "moloch source changed")
         any_source_ran = True
     if source_decisions.get("icon2i", {}).get("due"):
@@ -1337,9 +2165,15 @@ def poll_once(args: argparse.Namespace, state: dict[str, Any]) -> dict[str, Any]
             command_timeout_sec=args.icon2i_command_timeout_sec,
         )
         publish_wind2d_json(args, commands, "icon2i source refreshed")
+        archive_source_snapshot_if_needed("icon2i", args, status, commands)
         enqueue_raster_tiles_if_source_changed("icon2i", args, status, commands, "icon2i source changed")
         any_source_ran = True
     any_source_changed = any(bool(item.get("changed")) for item in status["sources"].values())
+    collect_copernicus_sst_if_needed(args, status, commands, now)
+    collect_eumetsat_cloud_mask_if_needed(args, state, status, commands, now)
+    for product in EUMETSAT_THERMAL_PRODUCTS:
+        collect_eumetsat_spot_product_if_needed(product, args, state, status, commands, now)
+    build_ml_feature_store_if_needed(args, status, commands)
     current_run_time = read_run_time()
     status["current_run_time_utc"] = current_run_time
     state["last_seen_run_time_utc"] = current_run_time
@@ -1498,6 +2332,72 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force", action="store_true", help="Run the 50 m pipeline even if the run was already completed.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=True, help="Delete raw weather downloads after derived Wind2D artifacts are published.")
+    parser.add_argument("--ml-root", type=Path, default=DEFAULT_ML_ROOT, help="Root directory for ML dataset inputs and derived tables.")
+    parser.add_argument("--ml-registry", type=Path, default=DEFAULT_ML_REGISTRY, help="ML spot registry JSON.")
+    parser.add_argument("--enable-ml-dataset-archive", action=argparse.BooleanOptionalAction, default=env_bool("ML_DATASET_ARCHIVE_ENABLED", False), help="Archive derived model-layer JSON snapshots and sample them at ML spots for dataset construction.")
+    parser.add_argument("--ml-dataset-root", type=Path, default=DEFAULT_ML_DATASET_ROOT, help="Root directory for archived ML dataset model-run snapshots.")
+    parser.add_argument("--ml-dataset-samples-root", type=Path, default=DEFAULT_ML_MODEL_SAMPLES_ROOT, help="Root directory for ML dataset model samples at spots.")
+    parser.add_argument("--enable-ml-feature-store", action=argparse.BooleanOptionalAction, default=env_bool("ML_FEATURE_STORE_ENABLED", False), help="Rebuild the canonical 15-minute ML feature store at the end of each cycle.")
+    parser.add_argument("--ml-feature-store-root", type=Path, default=DEFAULT_ML_FEATURE_STORE_ROOT)
+    parser.add_argument("--enable-ml-nwp-extra-fields", action=argparse.BooleanOptionalAction, default=env_bool("ML_NWP_EXTRA_FIELDS_ENABLED", False), help="Collect extra AROME/AROME-PI thermal/context fields at ML spots.")
+    parser.add_argument("--ml-nwp-extra-fields-raw-root", type=Path, default=DEFAULT_ML_NWP_EXTRA_FIELDS_RAW_ROOT)
+    parser.add_argument("--ml-nwp-extra-fields-samples-root", type=Path, default=DEFAULT_ML_NWP_EXTRA_FIELDS_SAMPLES_ROOT)
+    parser.add_argument("--ml-nwp-extra-fields-max-steps", type=int, default=env_int("ML_NWP_EXTRA_FIELDS_MAX_STEPS", 24), help="Maximum forecast steps sampled for extra NWP fields per source cycle.")
+    parser.add_argument("--ml-nwp-extra-fields-request-sleep-sec", type=float, default=float(os.getenv("ML_NWP_EXTRA_FIELDS_REQUEST_SLEEP_SEC", "0.2")))
+    parser.add_argument("--ml-nwp-extra-fields-include-context-spots", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--enable-ml-nwp-vertical-profiles", action=argparse.BooleanOptionalAction, default=env_bool("ML_NWP_VERTICAL_PROFILES_ENABLED", False), help="Collect AROME 0.025 isobaric vertical profiles at ML spots.")
+    parser.add_argument("--ml-nwp-vertical-profiles-raw-root", type=Path, default=DEFAULT_ML_NWP_VERTICAL_PROFILES_RAW_ROOT)
+    parser.add_argument("--ml-nwp-vertical-profiles-samples-root", type=Path, default=DEFAULT_ML_NWP_VERTICAL_PROFILES_SAMPLES_ROOT)
+    parser.add_argument("--ml-nwp-vertical-profiles-max-steps", type=int, default=env_int("ML_NWP_VERTICAL_PROFILES_MAX_STEPS", 5), help="Maximum AROME forecast steps sampled for vertical profiles per cycle.")
+    parser.add_argument("--ml-nwp-vertical-profiles-pressure-levels-hpa", nargs="+", type=int, default=env_int_list("ML_NWP_VERTICAL_PROFILES_PRESSURE_LEVELS_HPA", [1000, 925, 850]))
+    parser.add_argument("--ml-nwp-vertical-profiles-request-sleep-sec", type=float, default=float(os.getenv("ML_NWP_VERTICAL_PROFILES_REQUEST_SLEEP_SEC", "0.2")))
+    parser.add_argument("--ml-nwp-vertical-profiles-include-context-spots", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--enable-ml-copernicus-sst", action=argparse.BooleanOptionalAction, default=env_bool("ML_COPERNICUS_SST_ENABLED", False), help="Collect Copernicus Marine SST for ML dataset construction.")
+    parser.add_argument("--ml-copernicus-sst-raw-root", type=Path, default=DEFAULT_ML_COPERNICUS_SST_RAW_ROOT, help="Root directory for Copernicus Marine SST NetCDF cache.")
+    parser.add_argument("--ml-copernicus-sst-samples-root", type=Path, default=DEFAULT_ML_COPERNICUS_SST_SAMPLES_ROOT, help="Root directory for Copernicus Marine SST spot samples.")
+    parser.add_argument("--ml-copernicus-sst-window-hours", type=int, default=12, help="Hourly SST collection window length when explicit start/end are not provided.")
+    parser.add_argument("--ml-copernicus-sst-end-lag-hours", type=int, default=18, help="Lag between current UTC hour and the default SST window end.")
+    parser.add_argument("--ml-copernicus-sst-start-datetime", default=None, help="Explicit Copernicus SST collection start datetime in UTC.")
+    parser.add_argument("--ml-copernicus-sst-end-datetime", default=None, help="Explicit Copernicus SST collection end datetime in UTC.")
+    parser.add_argument("--ml-copernicus-sst-include-context-spots", action=argparse.BooleanOptionalAction, default=True, help="Include context spots when sampling Copernicus SST.")
+    parser.add_argument("--ml-copernicus-sst-log-level", default="INFO", choices=["DEBUG", "INFO", "WARN", "ERROR", "CRITICAL", "QUIET"])
+    parser.add_argument("--enable-ml-eumetsat-cloud-mask", action=argparse.BooleanOptionalAction, default=env_bool("ML_EUMETSAT_CLOUD_MASK_ENABLED", False), help="Collect EUMETSAT MTG Cloud Mask products for ML dataset construction.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-collection-id", default=os.getenv("ML_EUMETSAT_CLOUD_MASK_COLLECTION_ID", DEFAULT_ML_EUMETSAT_CLOUD_MASK_COLLECTION_ID))
+    parser.add_argument("--ml-eumetsat-cloud-mask-bbox", default=os.getenv("ML_EUMETSAT_CLOUD_MASK_BBOX", DEFAULT_ML_EUMETSAT_BBOX), help="EUMDAC bbox as west,south,east,north.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-raw-root", type=Path, default=DEFAULT_ML_EUMETSAT_CLOUD_MASK_RAW_ROOT, help="Root directory for EUMETSAT Cloud Mask NetCDF cache.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-samples-root", type=Path, default=DEFAULT_ML_EUMETSAT_CLOUD_MASK_SAMPLES_ROOT, help="Root directory for EUMETSAT Cloud Mask spot samples.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-poll-interval-sec", type=int, default=env_int("ML_EUMETSAT_CLOUD_MASK_POLL_INTERVAL_SEC", 480), help="Minimum interval between EUMETSAT Cloud Mask collections.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-window-minutes", type=int, default=env_int("ML_EUMETSAT_CLOUD_MASK_WINDOW_MINUTES", 120), help="Rolling EUMETSAT Cloud Mask search window length.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-end-lag-minutes", type=int, default=env_int("ML_EUMETSAT_CLOUD_MASK_END_LAG_MINUTES", 5), help="Lag between now and the default EUMETSAT search window end.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-start-datetime", default=None, help="Explicit EUMETSAT Cloud Mask collection start datetime in UTC.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-end-datetime", default=None, help="Explicit EUMETSAT Cloud Mask collection end datetime in UTC.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-max-products", type=int, default=env_int("ML_EUMETSAT_CLOUD_MASK_MAX_PRODUCTS", 18))
+    parser.add_argument("--ml-eumetsat-cloud-mask-include-context-spots", action=argparse.BooleanOptionalAction, default=True, help="Include context spots when sampling EUMETSAT Cloud Mask.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-radius-cells", type=int, default=env_int("ML_EUMETSAT_CLOUD_MASK_RADIUS_CELLS", 3), help="Cloud-state neighbourhood radius around the nearest satellite pixel.")
+    parser.add_argument("--ml-eumetsat-cloud-mask-quality-flags", action=argparse.BooleanOptionalAction, default=True, help="Sample EUMETSAT Cloud Mask quality variables when available.")
+    parser.add_argument("--enable-ml-eumetsat-thermal-products", action=argparse.BooleanOptionalAction, default=env_bool("ML_EUMETSAT_THERMAL_PRODUCTS_ENABLED", False), help="Collect Cloud Type, Land Surface Temperature, and Global Instability Indices.")
+    parser.add_argument("--enable-ml-eumetsat-cloud-type", action=argparse.BooleanOptionalAction, default=env_bool("ML_EUMETSAT_CLOUD_TYPE_ENABLED", False), help="Collect EUMETSAT MTG Cloud Type.")
+    parser.add_argument("--enable-ml-eumetsat-land-surface-temperature", action=argparse.BooleanOptionalAction, default=env_bool("ML_EUMETSAT_LAND_SURFACE_TEMPERATURE_ENABLED", False), help="Collect EUMETSAT MTG Land Surface Temperature.")
+    parser.add_argument("--enable-ml-eumetsat-global-instability-indices", action=argparse.BooleanOptionalAction, default=env_bool("ML_EUMETSAT_GLOBAL_INSTABILITY_INDICES_ENABLED", False), help="Collect EUMETSAT MTG Global Instability Indices.")
+    parser.add_argument("--ml-eumetsat-thermal-bbox", default=os.getenv("ML_EUMETSAT_THERMAL_BBOX", DEFAULT_ML_EUMETSAT_BBOX), help="EUMDAC bbox for EUMETSAT thermal/context products.")
+    parser.add_argument("--ml-eumetsat-thermal-poll-interval-sec", type=int, default=env_int("ML_EUMETSAT_THERMAL_POLL_INTERVAL_SEC", 900), help="Minimum interval between EUMETSAT thermal/context collections.")
+    parser.add_argument("--ml-eumetsat-thermal-window-minutes", type=int, default=env_int("ML_EUMETSAT_THERMAL_WINDOW_MINUTES", 180), help="Rolling EUMETSAT thermal/context search window length.")
+    parser.add_argument("--ml-eumetsat-thermal-end-lag-minutes", type=int, default=env_int("ML_EUMETSAT_THERMAL_END_LAG_MINUTES", 10), help="Lag between now and the default EUMETSAT thermal/context search window end.")
+    parser.add_argument("--ml-eumetsat-thermal-start-datetime", default=None, help="Explicit EUMETSAT thermal/context start datetime in UTC.")
+    parser.add_argument("--ml-eumetsat-thermal-end-datetime", default=None, help="Explicit EUMETSAT thermal/context end datetime in UTC.")
+    parser.add_argument("--ml-eumetsat-thermal-max-products", type=int, default=env_int("ML_EUMETSAT_THERMAL_MAX_PRODUCTS", 12))
+    parser.add_argument("--ml-eumetsat-thermal-max-variables", type=int, default=env_int("ML_EUMETSAT_THERMAL_MAX_VARIABLES", 24))
+    parser.add_argument("--ml-eumetsat-thermal-radius-cells", type=int, default=env_int("ML_EUMETSAT_THERMAL_RADIUS_CELLS", 3))
+    parser.add_argument("--ml-eumetsat-thermal-include-context-spots", action=argparse.BooleanOptionalAction, default=True, help="Include context spots when sampling EUMETSAT thermal/context products.")
+    parser.add_argument("--ml-eumetsat-cloud-type-collection-id", default=os.getenv("ML_EUMETSAT_CLOUD_TYPE_COLLECTION_ID", EUMETSAT_THERMAL_PRODUCTS["cloud_type"]["collection_id"]))
+    parser.add_argument("--ml-eumetsat-cloud-type-raw-root", type=Path, default=EUMETSAT_THERMAL_PRODUCTS["cloud_type"]["raw_root"])
+    parser.add_argument("--ml-eumetsat-cloud-type-samples-root", type=Path, default=EUMETSAT_THERMAL_PRODUCTS["cloud_type"]["samples_root"])
+    parser.add_argument("--ml-eumetsat-land-surface-temperature-collection-id", default=os.getenv("ML_EUMETSAT_LAND_SURFACE_TEMPERATURE_COLLECTION_ID", EUMETSAT_THERMAL_PRODUCTS["land_surface_temperature"]["collection_id"]))
+    parser.add_argument("--ml-eumetsat-land-surface-temperature-raw-root", type=Path, default=EUMETSAT_THERMAL_PRODUCTS["land_surface_temperature"]["raw_root"])
+    parser.add_argument("--ml-eumetsat-land-surface-temperature-samples-root", type=Path, default=EUMETSAT_THERMAL_PRODUCTS["land_surface_temperature"]["samples_root"])
+    parser.add_argument("--ml-eumetsat-global-instability-indices-collection-id", default=os.getenv("ML_EUMETSAT_GLOBAL_INSTABILITY_INDICES_COLLECTION_ID", EUMETSAT_THERMAL_PRODUCTS["global_instability_indices"]["collection_id"]))
+    parser.add_argument("--ml-eumetsat-global-instability-indices-raw-root", type=Path, default=EUMETSAT_THERMAL_PRODUCTS["global_instability_indices"]["raw_root"])
+    parser.add_argument("--ml-eumetsat-global-instability-indices-samples-root", type=Path, default=EUMETSAT_THERMAL_PRODUCTS["global_instability_indices"]["samples_root"])
     parser.add_argument("--lead-hours", nargs="+", default=None)
     parser.add_argument("--arome-lead-hour-policy", choices=["session", "all-48"], default="all-48")
     parser.add_argument("--arome-poll-interval-sec", type=int, default=900, help="Normal polling interval for the main AROME source.")
@@ -1565,6 +2465,22 @@ def main() -> None:
     args.state_file = resolve_path(args.state_file)
     args.status_file = resolve_path(args.status_file)
     args.export_manifest = resolve_path(args.export_manifest)
+    args.ml_root = resolve_path(args.ml_root)
+    args.ml_registry = resolve_path(args.ml_registry)
+    args.ml_dataset_root = resolve_path(args.ml_dataset_root)
+    args.ml_dataset_samples_root = resolve_path(args.ml_dataset_samples_root)
+    args.ml_feature_store_root = resolve_path(args.ml_feature_store_root)
+    args.ml_nwp_extra_fields_raw_root = resolve_path(args.ml_nwp_extra_fields_raw_root)
+    args.ml_nwp_extra_fields_samples_root = resolve_path(args.ml_nwp_extra_fields_samples_root)
+    args.ml_nwp_vertical_profiles_raw_root = resolve_path(args.ml_nwp_vertical_profiles_raw_root)
+    args.ml_nwp_vertical_profiles_samples_root = resolve_path(args.ml_nwp_vertical_profiles_samples_root)
+    args.ml_copernicus_sst_raw_root = resolve_path(args.ml_copernicus_sst_raw_root)
+    args.ml_copernicus_sst_samples_root = resolve_path(args.ml_copernicus_sst_samples_root)
+    args.ml_eumetsat_cloud_mask_raw_root = resolve_path(args.ml_eumetsat_cloud_mask_raw_root)
+    args.ml_eumetsat_cloud_mask_samples_root = resolve_path(args.ml_eumetsat_cloud_mask_samples_root)
+    for product in EUMETSAT_THERMAL_PRODUCTS:
+        setattr(args, f"ml_eumetsat_{product}_raw_root", resolve_path(getattr(args, f"ml_eumetsat_{product}_raw_root")))
+        setattr(args, f"ml_eumetsat_{product}_samples_root", resolve_path(getattr(args, f"ml_eumetsat_{product}_samples_root")))
     args.lock_file = resolve_path(args.lock_file)
 
     acquire_lock(args.lock_file, args.lock_stale_after_sec)

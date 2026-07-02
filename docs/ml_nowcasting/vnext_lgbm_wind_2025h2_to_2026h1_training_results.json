@@ -1,0 +1,2982 @@
+{
+  "categorical_column_count": 13,
+  "dropped_columns": {
+    "constant": [
+      {
+        "column": "baselines__baseline_model",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_all_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_all_upwind_weighted_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_coastal_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_coastal_upwind_weighted_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_inland_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_inland_delta_vs_target_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_inland_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_inland_upwind_weighted_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_inland_upwind_weighted_delta_vs_target_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_inland_upwind_weighted_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_nearby_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_nearby_upwind_weighted_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_age_minutes_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_altitude_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_bearing_from_spot_deg_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_gust_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_humidity_pct_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_temperature_c_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_wind_mean_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_wind_u_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_delta_vs_target_wind_v_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_distance_km_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_east_offset_km_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_gust_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_humidity_pct_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_north_offset_km_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_station_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_temperature_c_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_upwind_score_from_target_wind_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_upwind_weight_sum",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_upwind_weighted_station_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_wind_mean_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_wind_u_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_regional_wind_v_ms_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_relief_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_relief_delta_vs_target_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_relief_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_relief_upwind_weighted_altitude_delta_m_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_relief_upwind_weighted_delta_vs_target_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_agg_relief_upwind_weighted_pressure_hpa_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_coastal_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_coastal_1_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_coastal_2_age_minutes",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_coastal_2_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_coastal_2_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_coastal_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_coastal_1_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_inland_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_inland_1_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_nearest_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_nearest_3_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_nearest_4_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_relief_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_global_relief_1_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_1_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_age_minutes",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_altitude_m",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_bearing_from_spot_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_bearing_to_spot_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_east_offset_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_latitude",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_longitude",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_north_offset_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_inland_2_station_id",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_nearest_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_nearest_2_age_minutes",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_nearest_2_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_nearest_3_age_minutes",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_1_age_minutes",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_1_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_altitude_m",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_bearing_from_spot_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_bearing_to_spot_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_east_offset_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_latitude",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_longitude",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_north_offset_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_role",
+        "unique_count": 1
+      },
+      {
+        "column": "features__context_relief_2_station_id",
+        "unique_count": 1
+      },
+      {
+        "column": "features__eumetsat_cloud_mask_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__eumetsat_cloud_type_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__model_open_meteo_meteofrance_arome_france_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__model_open_meteo_meteofrance_arome_france_showers",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_e10_bearing_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_e10_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_e10_model",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_n10_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_n10_bearing_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_n10_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_n10_model",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_s10_bearing_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_s10_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_s10_model",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_w10_bearing_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_w10_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__nwp_offset_w10_model",
+        "unique_count": 1
+      },
+      {
+        "column": "features__obs_delta_15m_pressure_hpa",
+        "unique_count": 1
+      },
+      {
+        "column": "features__obs_delta_15m_temperature_c",
+        "unique_count": 1
+      },
+      {
+        "column": "features__obs_delta_60m_pressure_hpa",
+        "unique_count": 1
+      },
+      {
+        "column": "features__obs_delta_60m_temperature_c",
+        "unique_count": 1
+      },
+      {
+        "column": "features__previous_run_open_meteo_best_match_day1_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__previous_run_open_meteo_best_match_day1_nominal_forecast_age_hours",
+        "unique_count": 1
+      },
+      {
+        "column": "features__previous_run_open_meteo_best_match_day2_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__previous_run_open_meteo_best_match_day2_nominal_forecast_age_hours",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_all_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_bearing_step_deg",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_max_radius_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_nearest_land_distance_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radial_sample_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radial_step_km",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_10p0km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_10p0km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_1p0km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_1p0km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_20p0km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_20p0km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_2p0km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_2p0km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_5p0km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_radius_5p0km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_e_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_e_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_n_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_n_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_ne_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_ne_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_nw_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_nw_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_s_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_s_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_se_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_se_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_sw_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_sw_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_w_20km_elevation_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_dem_sector_w_20km_relief_count",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_is_ml_target",
+        "unique_count": 1
+      },
+      {
+        "column": "features__spot_static_source_resolution_minutes",
+        "unique_count": 1
+      },
+      {
+        "column": "features__sst_available",
+        "unique_count": 1
+      },
+      {
+        "column": "features__thermal_recent_heating_rate_c_per_h",
+        "unique_count": 1
+      },
+      {
+        "column": "features__thermal_recent_pressure_tendency_hpa_per_h",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__context_stations",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__eumetsat_cloud_mask",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__eumetsat_cloud_type",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__eumetsat_global_instability_indices",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__eumetsat_land_surface_temperature",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__model_arome",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__model_aromepi",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__model_icon2i",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__model_moloch",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__model_open_meteo_meteofrance_arome_france",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__nwp_arome_extra",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__nwp_aromepi_extra",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__nwp_icon2i_extra",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__nwp_moloch_extra",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__nwp_offset_n10_meteofrance_arome_france",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__previous_run_open_meteo_best_match_day1",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__previous_run_open_meteo_best_match_day2",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__spot_static",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__sst",
+        "unique_count": 1
+      },
+      {
+        "column": "issue_feature_sources__vertical_arome",
+        "unique_count": 1
+      },
+      {
+        "column": "spot_kind",
+        "unique_count": 1
+      }
+    ],
+    "high_cardinality_categorical": [
+      {
+        "column": "features__model_open_meteo_meteofrance_arome_france_valid_time_utc",
+        "unique_count": 2728
+      }
+    ],
+    "too_sparse": [
+      {
+        "column": "features__context_coastal_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_coastal_1_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_coastal_2_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_coastal_2_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_coastal_2_delta_vs_target_wind_u_ms",
+        "non_null_count": 2560,
+        "non_null_ratio": 0.00998086
+      },
+      {
+        "column": "features__context_coastal_2_delta_vs_target_wind_v_ms",
+        "non_null_count": 2560,
+        "non_null_ratio": 0.00998086
+      },
+      {
+        "column": "features__context_coastal_2_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_coastal_2_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_coastal_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_inland_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_inland_1_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_inland_1_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_inland_1_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_2_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_2_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_2_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_3_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_4_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_nearest_4_delta_vs_target_pressure_hpa",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_global_relief_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_relief_1_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_relief_1_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_relief_1_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_global_relief_1_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_1_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_1_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_1_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_1_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_2_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_2_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_2_delta_vs_target_wind_u_ms",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_inland_2_delta_vs_target_wind_v_ms",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_inland_2_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_2_precipitation_mm",
+        "non_null_count": 2534,
+        "non_null_ratio": 0.00987949
+      },
+      {
+        "column": "features__context_inland_2_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_2_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_inland_2_upwind_score_from_target_wind",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_nearest_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_1_delta_vs_target_pressure_hpa",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_nearest_1_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_1_sea_level_pressure_hpa",
+        "non_null_count": 1998,
+        "non_null_ratio": 0.00778975
+      },
+      {
+        "column": "features__context_nearest_2_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_2_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_2_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_2_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_2_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_3_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_3_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_3_delta_vs_target_wind_u_ms",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_nearest_3_delta_vs_target_wind_v_ms",
+        "non_null_count": 2564,
+        "non_null_ratio": 0.00999645
+      },
+      {
+        "column": "features__context_nearest_3_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_3_precipitation_mm",
+        "non_null_count": 2534,
+        "non_null_ratio": 0.00987949
+      },
+      {
+        "column": "features__context_nearest_3_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_nearest_3_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_1_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_1_delta_vs_target_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_1_global_radiation_raw",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_1_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_1_sea_level_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_2_age_minutes",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__context_relief_2_altitude_delta_m",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_mask_age_minutes",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_age_minutes",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_phase",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_phase_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_phase_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_phase_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_phase_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_1",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_10",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_11",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_12",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_13",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_14",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_2",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_5",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_6",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_7",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_8",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_fraction_9",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_mode",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_cloud_type_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_product_completeness",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_product_quality",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_product_timeliness",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_MTG_parameters",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_MTG_parameters_neighborhood_fraction_1",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_MTG_parameters_neighborhood_mode",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_MTG_parameters_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_illumination",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_illumination_neighborhood_fraction_3",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_illumination_neighborhood_mode",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_illumination_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_nwp_parameters",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_nwp_parameters_neighborhood_fraction_1",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_nwp_parameters_neighborhood_fraction_2",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_nwp_parameters_neighborhood_mode",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_nwp_parameters_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_overall_processing",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_overall_processing_neighborhood_fraction_1",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_overall_processing_neighborhood_fraction_2",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_overall_processing_neighborhood_fraction_4",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_overall_processing_neighborhood_mode",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_quality_overall_processing_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_cloud_type_sample_distance_km",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_age_minutes",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_k_index",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_k_index_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_k_index_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_k_index_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_k_index_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_lifted_index",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_lifted_index_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_lifted_index_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_lifted_index_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_lifted_index_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_number_of_iterations",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_number_of_iterations_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_number_of_iterations_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_number_of_iterations_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_number_of_iterations_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_percent_cloud_free",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_percent_cloud_free_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_percent_cloud_free_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_percent_cloud_free_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_percent_cloud_free_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_high",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_high_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_high_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_high_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_high_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_low",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_low_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_low_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_low_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_low_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_mid",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_mid_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_mid_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_mid_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_mid_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_total",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_total_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_total_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_total_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_prec_water_total_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_product_completeness",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_product_quality",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_product_timeliness",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_global_instability_indices_sample_distance_km",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_c",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_uncertainty",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_uncertainty_neighborhood_max",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_uncertainty_neighborhood_mean",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_uncertainty_neighborhood_min",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_LST_uncertainty_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_fraction_0",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_fraction_10",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_fraction_101",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_fraction_102",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_fraction_110",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_mode",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_QFLAGS_neighborhood_valid_count",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_age_minutes",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_product_completeness",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_product_quality",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_product_timeliness",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__eumetsat_land_surface_temperature_sample_distance_km",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__model_open_meteo_meteofrance_arome_france_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__model_open_meteo_meteofrance_arome_france_lifted_index",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_e10_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_e10_delta_vs_center_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_n10_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_n10_delta_vs_center_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_s10_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_s10_delta_vs_center_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_w10_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__nwp_offset_w10_delta_vs_center_boundary_layer_height",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__obs_last_global_radiation_raw",
+        "non_null_count": 2463,
+        "non_null_ratio": 0.00960268
+      },
+      {
+        "column": "features__thermal_cape_x_land_sea",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__thermal_inland_minus_coastal_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__thermal_land_minus_air_c",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__thermal_land_minus_sst_c",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__thermal_land_sea_insolation_index",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__thermal_low_cloud_suppression_index",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      },
+      {
+        "column": "features__thermal_relief_minus_coastal_pressure_hpa",
+        "non_null_count": 0,
+        "non_null_ratio": 0.0
+      }
+    ]
+  },
+  "feature_column_count": 1466,
+  "format": "corsewind.residual_correction_parquet_training.v1",
+  "generated_at_utc": "2026-07-01T14:09:30.337570Z",
+  "model_family": "lightgbm",
+  "models": {
+    "labels__residual_wind_mean_ms": {
+      "corrected_nwp_by_lead": {
+        "15": {
+          "bias": 0.121848,
+          "count": 54551,
+          "mae": 0.880828,
+          "rmse": 1.189841
+        },
+        "30": {
+          "bias": 0.145883,
+          "count": 54323,
+          "mae": 0.984648,
+          "rmse": 1.324621
+        },
+        "45": {
+          "bias": 0.163434,
+          "count": 54202,
+          "mae": 1.054966,
+          "rmse": 1.415133
+        },
+        "60": {
+          "bias": 0.132089,
+          "count": 70986,
+          "mae": 1.076652,
+          "rmse": 1.454331
+        }
+      },
+      "corrected_nwp_by_observed_regime": {
+        "12-15kt": {
+          "bias": -0.167652,
+          "count": 16911,
+          "mae": 1.03635,
+          "rmse": 1.358221
+        },
+        "15-20kt": {
+          "bias": -0.30394,
+          "count": 30261,
+          "mae": 1.139547,
+          "rmse": 1.500554
+        },
+        "20-25kt": {
+          "bias": -0.494741,
+          "count": 13248,
+          "mae": 1.370725,
+          "rmse": 1.764363
+        },
+        "<12kt": {
+          "bias": 0.353062,
+          "count": 166154,
+          "mae": 0.917568,
+          "rmse": 1.242056
+        },
+        ">=25kt": {
+          "bias": -0.970768,
+          "count": 7488,
+          "mae": 1.67215,
+          "rmse": 2.141179
+        }
+      },
+      "corrected_nwp_by_spot": {
+        "spot_id=balistra": {
+          "bias": 0.136645,
+          "count": 28743,
+          "group": {
+            "spot_id": "balistra"
+          },
+          "mae": 0.94262,
+          "rmse": 1.252216
+        },
+        "spot_id=cap_corse": {
+          "bias": -0.155683,
+          "count": 2339,
+          "group": {
+            "spot_id": "cap_corse"
+          },
+          "mae": 1.320295,
+          "rmse": 1.742773
+        },
+        "spot_id=figari_eole": {
+          "bias": 0.148449,
+          "count": 9247,
+          "group": {
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.054485,
+          "rmse": 1.359913
+        },
+        "spot_id=la_parata": {
+          "bias": -0.127323,
+          "count": 2420,
+          "group": {
+            "spot_id": "la_parata"
+          },
+          "mae": 1.062941,
+          "rmse": 1.451636
+        },
+        "spot_id=la_tonnara": {
+          "bias": 0.076067,
+          "count": 38071,
+          "group": {
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.162367,
+          "rmse": 1.557949
+        },
+        "spot_id=lfkf": {
+          "bias": 0.071083,
+          "count": 2433,
+          "group": {
+            "spot_id": "lfkf"
+          },
+          "mae": 0.840225,
+          "rmse": 1.119986
+        },
+        "spot_id=lfkj": {
+          "bias": -0.023713,
+          "count": 2436,
+          "group": {
+            "spot_id": "lfkj"
+          },
+          "mae": 0.728031,
+          "rmse": 0.984934
+        },
+        "spot_id=lfks": {
+          "bias": 0.135156,
+          "count": 2436,
+          "group": {
+            "spot_id": "lfks"
+          },
+          "mae": 0.746634,
+          "rmse": 1.099127
+        },
+        "spot_id=lfvf": {
+          "bias": -0.130325,
+          "count": 2422,
+          "group": {
+            "spot_id": "lfvf"
+          },
+          "mae": 1.05441,
+          "rmse": 1.449853
+        },
+        "spot_id=lfvh": {
+          "bias": 0.064019,
+          "count": 2434,
+          "group": {
+            "spot_id": "lfvh"
+          },
+          "mae": 1.035681,
+          "rmse": 1.42908
+        },
+        "spot_id=piantarella": {
+          "bias": 0.107144,
+          "count": 35776,
+          "group": {
+            "spot_id": "piantarella"
+          },
+          "mae": 0.880008,
+          "rmse": 1.19131
+        },
+        "spot_id=porticcio": {
+          "bias": 0.080562,
+          "count": 37320,
+          "group": {
+            "spot_id": "porticcio"
+          },
+          "mae": 0.770139,
+          "rmse": 1.075644
+        },
+        "spot_id=porto_polo": {
+          "bias": 0.514904,
+          "count": 31792,
+          "group": {
+            "spot_id": "porto_polo"
+          },
+          "mae": 1.156826,
+          "rmse": 1.479321
+        },
+        "spot_id=santa_manza": {
+          "bias": 0.049414,
+          "count": 36193,
+          "group": {
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.123872,
+          "rmse": 1.509812
+        }
+      },
+      "corrected_nwp_by_spot_lead": {
+        "spot_id=balistra|lead_time_minutes=15.0": {
+          "bias": 0.133057,
+          "count": 7188,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "balistra"
+          },
+          "mae": 0.812522,
+          "rmse": 1.086626
+        },
+        "spot_id=balistra|lead_time_minutes=30.0": {
+          "bias": 0.133888,
+          "count": 7187,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "balistra"
+          },
+          "mae": 0.914978,
+          "rmse": 1.216804
+        },
+        "spot_id=balistra|lead_time_minutes=45.0": {
+          "bias": 0.137304,
+          "count": 7185,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "balistra"
+          },
+          "mae": 0.989513,
+          "rmse": 1.307789
+        },
+        "spot_id=balistra|lead_time_minutes=60.0": {
+          "bias": 0.142336,
+          "count": 7183,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "balistra"
+          },
+          "mae": 1.053561,
+          "rmse": 1.378685
+        },
+        "spot_id=cap_corse|lead_time_minutes=60.0": {
+          "bias": -0.155683,
+          "count": 2339,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "cap_corse"
+          },
+          "mae": 1.320295,
+          "rmse": 1.742773
+        },
+        "spot_id=figari_eole|lead_time_minutes=15.0": {
+          "bias": 0.145236,
+          "count": 2366,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 0.925458,
+          "rmse": 1.197906
+        },
+        "spot_id=figari_eole|lead_time_minutes=30.0": {
+          "bias": 0.149858,
+          "count": 2320,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.034547,
+          "rmse": 1.328186
+        },
+        "spot_id=figari_eole|lead_time_minutes=45.0": {
+          "bias": 0.150633,
+          "count": 2294,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.11145,
+          "rmse": 1.419019
+        },
+        "spot_id=figari_eole|lead_time_minutes=60.0": {
+          "bias": 0.148152,
+          "count": 2267,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.151907,
+          "rmse": 1.484221
+        },
+        "spot_id=la_parata|lead_time_minutes=60.0": {
+          "bias": -0.127323,
+          "count": 2420,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "la_parata"
+          },
+          "mae": 1.062941,
+          "rmse": 1.451636
+        },
+        "spot_id=la_tonnara|lead_time_minutes=15.0": {
+          "bias": 0.080517,
+          "count": 9523,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.011247,
+          "rmse": 1.354198
+        },
+        "spot_id=la_tonnara|lead_time_minutes=30.0": {
+          "bias": 0.075649,
+          "count": 9517,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.135449,
+          "rmse": 1.514996
+        },
+        "spot_id=la_tonnara|lead_time_minutes=45.0": {
+          "bias": 0.071701,
+          "count": 9516,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.217535,
+          "rmse": 1.624918
+        },
+        "spot_id=la_tonnara|lead_time_minutes=60.0": {
+          "bias": 0.076398,
+          "count": 9515,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.285363,
+          "rmse": 1.714614
+        },
+        "spot_id=lfkf|lead_time_minutes=60.0": {
+          "bias": 0.071083,
+          "count": 2433,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfkf"
+          },
+          "mae": 0.840225,
+          "rmse": 1.119986
+        },
+        "spot_id=lfkj|lead_time_minutes=60.0": {
+          "bias": -0.023713,
+          "count": 2436,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfkj"
+          },
+          "mae": 0.728031,
+          "rmse": 0.984934
+        },
+        "spot_id=lfks|lead_time_minutes=60.0": {
+          "bias": 0.135156,
+          "count": 2436,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfks"
+          },
+          "mae": 0.746634,
+          "rmse": 1.099127
+        },
+        "spot_id=lfvf|lead_time_minutes=60.0": {
+          "bias": -0.130325,
+          "count": 2422,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfvf"
+          },
+          "mae": 1.05441,
+          "rmse": 1.449853
+        },
+        "spot_id=lfvh|lead_time_minutes=60.0": {
+          "bias": 0.064019,
+          "count": 2434,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfvh"
+          },
+          "mae": 1.035681,
+          "rmse": 1.42908
+        },
+        "spot_id=piantarella|lead_time_minutes=15.0": {
+          "bias": 0.065759,
+          "count": 9102,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 0.773605,
+          "rmse": 1.049626
+        },
+        "spot_id=piantarella|lead_time_minutes=30.0": {
+          "bias": 0.10191,
+          "count": 8955,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 0.865748,
+          "rmse": 1.167355
+        },
+        "spot_id=piantarella|lead_time_minutes=45.0": {
+          "bias": 0.122942,
+          "count": 8897,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 0.923487,
+          "rmse": 1.244323
+        },
+        "spot_id=piantarella|lead_time_minutes=60.0": {
+          "bias": 0.139225,
+          "count": 8822,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 0.960414,
+          "rmse": 1.293806
+        },
+        "spot_id=porticcio|lead_time_minutes=15.0": {
+          "bias": 0.002361,
+          "count": 9338,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 0.666433,
+          "rmse": 0.935314
+        },
+        "spot_id=porticcio|lead_time_minutes=30.0": {
+          "bias": 0.065839,
+          "count": 9332,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 0.750738,
+          "rmse": 1.045253
+        },
+        "spot_id=porticcio|lead_time_minutes=45.0": {
+          "bias": 0.10853,
+          "count": 9327,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 0.806838,
+          "rmse": 1.121596
+        },
+        "spot_id=porticcio|lead_time_minutes=60.0": {
+          "bias": 0.145644,
+          "count": 9323,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 0.856717,
+          "rmse": 1.184556
+        },
+        "spot_id=porto_polo|lead_time_minutes=15.0": {
+          "bias": 0.445809,
+          "count": 7982,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 1.009414,
+          "rmse": 1.290252
+        },
+        "spot_id=porto_polo|lead_time_minutes=30.0": {
+          "bias": 0.496605,
+          "count": 7961,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 1.129997,
+          "rmse": 1.441622
+        },
+        "spot_id=porto_polo|lead_time_minutes=45.0": {
+          "bias": 0.540499,
+          "count": 7938,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 1.21001,
+          "rmse": 1.542043
+        },
+        "spot_id=porto_polo|lead_time_minutes=60.0": {
+          "bias": 0.57735,
+          "count": 7911,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 1.279193,
+          "rmse": 1.624004
+        },
+        "spot_id=santa_manza|lead_time_minutes=15.0": {
+          "bias": 0.044306,
+          "count": 9052,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.001794,
+          "rmse": 1.34593
+        },
+        "spot_id=santa_manza|lead_time_minutes=30.0": {
+          "bias": 0.045787,
+          "count": 9051,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.099582,
+          "rmse": 1.478866
+        },
+        "spot_id=santa_manza|lead_time_minutes=45.0": {
+          "bias": 0.049477,
+          "count": 9045,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.170722,
+          "rmse": 1.564074
+        },
+        "spot_id=santa_manza|lead_time_minutes=60.0": {
+          "bias": 0.05809,
+          "count": 9045,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.223502,
+          "rmse": 1.635133
+        }
+      },
+      "corrected_nwp_eval_leads": {
+        "bias": 0.140162,
+        "count": 234062,
+        "lead_time_minutes": [
+          15,
+          30,
+          45,
+          60
+        ],
+        "mae": 1.004638,
+        "rmse": 1.357343
+      },
+      "corrected_nwp_test": {
+        "bias": 0.140162,
+        "count": 234062,
+        "mae": 1.004638,
+        "rmse": 1.357343
+      },
+      "corrected_nwp_threshold_detection": {
+        ">=12kt": {
+          "count": 234062,
+          "csi": 0.75403,
+          "fn": 7747,
+          "fp": 11878,
+          "precision": 0.835117,
+          "recall": 0.885919,
+          "threshold_kt": 12.0,
+          "tn": 154276,
+          "tp": 60161
+        },
+        ">=15kt": {
+          "count": 234062,
+          "csi": 0.69611,
+          "fn": 11293,
+          "fp": 6040,
+          "precision": 0.867961,
+          "recall": 0.778556,
+          "threshold_kt": 15.0,
+          "tn": 177025,
+          "tp": 39704
+        },
+        ">=20kt": {
+          "count": 234062,
+          "csi": 0.632776,
+          "fn": 5569,
+          "fp": 3233,
+          "precision": 0.824293,
+          "recall": 0.731433,
+          "threshold_kt": 20.0,
+          "tn": 210093,
+          "tp": 15167
+        },
+        ">=25kt": {
+          "count": 234062,
+          "csi": 0.612529,
+          "fn": 1729,
+          "fp": 1914,
+          "precision": 0.750554,
+          "recall": 0.769097,
+          "threshold_kt": 25.0,
+          "tn": 224660,
+          "tp": 5759
+        }
+      },
+      "fit_group_columns": [],
+      "fit_groups": [],
+      "model_family": "lightgbm",
+      "model_path": "/srv/data/corsewind/ml_dataset/benchmarks/vnext_2025h2_to_2026h1/lgbm_wind/labels__residual_wind_mean_ms.joblib",
+      "raw_nwp_by_lead": {
+        "15": {
+          "bias": 0.399893,
+          "count": 54551,
+          "mae": 1.648549,
+          "rmse": 2.150685
+        },
+        "30": {
+          "bias": 0.40161,
+          "count": 54323,
+          "mae": 1.649564,
+          "rmse": 2.152052
+        },
+        "45": {
+          "bias": 0.403752,
+          "count": 54202,
+          "mae": 1.648775,
+          "rmse": 2.149247
+        },
+        "60": {
+          "bias": 0.101904,
+          "count": 70986,
+          "mae": 1.624448,
+          "rmse": 2.172047
+        }
+      },
+      "raw_nwp_by_observed_regime": {
+        "12-15kt": {
+          "bias": -0.398026,
+          "count": 16911,
+          "mae": 1.63814,
+          "rmse": 2.063923
+        },
+        "15-20kt": {
+          "bias": -0.539622,
+          "count": 30261,
+          "mae": 1.720148,
+          "rmse": 2.199894
+        },
+        "20-25kt": {
+          "bias": -0.84438,
+          "count": 13248,
+          "mae": 1.996851,
+          "rmse": 2.476169
+        },
+        "<12kt": {
+          "bias": 0.751888,
+          "count": 166154,
+          "mae": 1.544469,
+          "rmse": 2.044691
+        },
+        ">=25kt": {
+          "bias": -2.394923,
+          "count": 7488,
+          "mae": 2.856477,
+          "rmse": 3.558412
+        }
+      },
+      "raw_nwp_by_spot": {
+        "spot_id=balistra": {
+          "bias": -0.815305,
+          "count": 28743,
+          "group": {
+            "spot_id": "balistra"
+          },
+          "mae": 1.458026,
+          "rmse": 1.885127
+        },
+        "spot_id=cap_corse": {
+          "bias": -2.069996,
+          "count": 2339,
+          "group": {
+            "spot_id": "cap_corse"
+          },
+          "mae": 2.458615,
+          "rmse": 3.177789
+        },
+        "spot_id=figari_eole": {
+          "bias": -0.533803,
+          "count": 9247,
+          "group": {
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.434632,
+          "rmse": 1.836476
+        },
+        "spot_id=la_parata": {
+          "bias": -0.80138,
+          "count": 2420,
+          "group": {
+            "spot_id": "la_parata"
+          },
+          "mae": 1.477512,
+          "rmse": 2.033238
+        },
+        "spot_id=la_tonnara": {
+          "bias": -0.235208,
+          "count": 38071,
+          "group": {
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.612786,
+          "rmse": 2.094296
+        },
+        "spot_id=lfkf": {
+          "bias": -0.19933,
+          "count": 2433,
+          "group": {
+            "spot_id": "lfkf"
+          },
+          "mae": 1.05088,
+          "rmse": 1.393473
+        },
+        "spot_id=lfkj": {
+          "bias": -0.558797,
+          "count": 2436,
+          "group": {
+            "spot_id": "lfkj"
+          },
+          "mae": 0.966236,
+          "rmse": 1.254182
+        },
+        "spot_id=lfks": {
+          "bias": 0.108296,
+          "count": 2436,
+          "group": {
+            "spot_id": "lfks"
+          },
+          "mae": 1.035111,
+          "rmse": 1.57548
+        },
+        "spot_id=lfvf": {
+          "bias": -2.347894,
+          "count": 2422,
+          "group": {
+            "spot_id": "lfvf"
+          },
+          "mae": 2.526441,
+          "rmse": 3.473574
+        },
+        "spot_id=lfvh": {
+          "bias": -0.231331,
+          "count": 2434,
+          "group": {
+            "spot_id": "lfvh"
+          },
+          "mae": 1.388726,
+          "rmse": 1.839599
+        },
+        "spot_id=piantarella": {
+          "bias": 0.973371,
+          "count": 35776,
+          "group": {
+            "spot_id": "piantarella"
+          },
+          "mae": 1.490621,
+          "rmse": 1.97199
+        },
+        "spot_id=porticcio": {
+          "bias": 1.485063,
+          "count": 37320,
+          "group": {
+            "spot_id": "porticcio"
+          },
+          "mae": 1.798342,
+          "rmse": 2.325931
+        },
+        "spot_id=porto_polo": {
+          "bias": 0.777807,
+          "count": 31792,
+          "group": {
+            "spot_id": "porto_polo"
+          },
+          "mae": 2.040345,
+          "rmse": 2.567175
+        },
+        "spot_id=santa_manza": {
+          "bias": 0.268375,
+          "count": 36193,
+          "group": {
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.549415,
+          "rmse": 2.053597
+        }
+      },
+      "raw_nwp_by_spot_lead": {
+        "spot_id=balistra|lead_time_minutes=15.0": {
+          "bias": -0.826162,
+          "count": 7188,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "balistra"
+          },
+          "mae": 1.463249,
+          "rmse": 1.892309
+        },
+        "spot_id=balistra|lead_time_minutes=30.0": {
+          "bias": -0.817066,
+          "count": 7187,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "balistra"
+          },
+          "mae": 1.457268,
+          "rmse": 1.886329
+        },
+        "spot_id=balistra|lead_time_minutes=45.0": {
+          "bias": -0.812058,
+          "count": 7185,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "balistra"
+          },
+          "mae": 1.456355,
+          "rmse": 1.882633
+        },
+        "spot_id=balistra|lead_time_minutes=60.0": {
+          "bias": -0.805928,
+          "count": 7183,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "balistra"
+          },
+          "mae": 1.455231,
+          "rmse": 1.879206
+        },
+        "spot_id=cap_corse|lead_time_minutes=60.0": {
+          "bias": -2.069996,
+          "count": 2339,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "cap_corse"
+          },
+          "mae": 2.458615,
+          "rmse": 3.177789
+        },
+        "spot_id=figari_eole|lead_time_minutes=15.0": {
+          "bias": -0.530583,
+          "count": 2366,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.428096,
+          "rmse": 1.83186
+        },
+        "spot_id=figari_eole|lead_time_minutes=30.0": {
+          "bias": -0.530992,
+          "count": 2320,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.434875,
+          "rmse": 1.83778
+        },
+        "spot_id=figari_eole|lead_time_minutes=45.0": {
+          "bias": -0.53452,
+          "count": 2294,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.436865,
+          "rmse": 1.837589
+        },
+        "spot_id=figari_eole|lead_time_minutes=60.0": {
+          "bias": -0.539314,
+          "count": 2267,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "figari_eole"
+          },
+          "mae": 1.438946,
+          "rmse": 1.838826
+        },
+        "spot_id=la_parata|lead_time_minutes=60.0": {
+          "bias": -0.80138,
+          "count": 2420,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "la_parata"
+          },
+          "mae": 1.477512,
+          "rmse": 2.033238
+        },
+        "spot_id=la_tonnara|lead_time_minutes=15.0": {
+          "bias": -0.243517,
+          "count": 9523,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.613466,
+          "rmse": 2.097583
+        },
+        "spot_id=la_tonnara|lead_time_minutes=30.0": {
+          "bias": -0.239071,
+          "count": 9517,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.613157,
+          "rmse": 2.095576
+        },
+        "spot_id=la_tonnara|lead_time_minutes=45.0": {
+          "bias": -0.232263,
+          "count": 9516,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.61125,
+          "rmse": 2.090782
+        },
+        "spot_id=la_tonnara|lead_time_minutes=60.0": {
+          "bias": -0.225975,
+          "count": 9515,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "la_tonnara"
+          },
+          "mae": 1.613271,
+          "rmse": 2.093235
+        },
+        "spot_id=lfkf|lead_time_minutes=60.0": {
+          "bias": -0.19933,
+          "count": 2433,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfkf"
+          },
+          "mae": 1.05088,
+          "rmse": 1.393473
+        },
+        "spot_id=lfkj|lead_time_minutes=60.0": {
+          "bias": -0.558797,
+          "count": 2436,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfkj"
+          },
+          "mae": 0.966236,
+          "rmse": 1.254182
+        },
+        "spot_id=lfks|lead_time_minutes=60.0": {
+          "bias": 0.108296,
+          "count": 2436,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfks"
+          },
+          "mae": 1.035111,
+          "rmse": 1.57548
+        },
+        "spot_id=lfvf|lead_time_minutes=60.0": {
+          "bias": -2.347894,
+          "count": 2422,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfvf"
+          },
+          "mae": 2.526441,
+          "rmse": 3.473574
+        },
+        "spot_id=lfvh|lead_time_minutes=60.0": {
+          "bias": -0.231331,
+          "count": 2434,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "lfvh"
+          },
+          "mae": 1.388726,
+          "rmse": 1.839599
+        },
+        "spot_id=piantarella|lead_time_minutes=15.0": {
+          "bias": 0.978108,
+          "count": 9102,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 1.490858,
+          "rmse": 1.972266
+        },
+        "spot_id=piantarella|lead_time_minutes=30.0": {
+          "bias": 0.976297,
+          "count": 8955,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 1.492159,
+          "rmse": 1.973427
+        },
+        "spot_id=piantarella|lead_time_minutes=45.0": {
+          "bias": 0.971876,
+          "count": 8897,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 1.491416,
+          "rmse": 1.973378
+        },
+        "spot_id=piantarella|lead_time_minutes=60.0": {
+          "bias": 0.967022,
+          "count": 8822,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "piantarella"
+          },
+          "mae": 1.488014,
+          "rmse": 1.968845
+        },
+        "spot_id=porticcio|lead_time_minutes=15.0": {
+          "bias": 1.485493,
+          "count": 9338,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 1.798753,
+          "rmse": 2.325786
+        },
+        "spot_id=porticcio|lead_time_minutes=30.0": {
+          "bias": 1.487464,
+          "count": 9332,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 1.799981,
+          "rmse": 2.32724
+        },
+        "spot_id=porticcio|lead_time_minutes=45.0": {
+          "bias": 1.486035,
+          "count": 9327,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 1.799169,
+          "rmse": 2.326829
+        },
+        "spot_id=porticcio|lead_time_minutes=60.0": {
+          "bias": 1.481257,
+          "count": 9323,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "porticcio"
+          },
+          "mae": 1.795463,
+          "rmse": 2.323865
+        },
+        "spot_id=porto_polo|lead_time_minutes=15.0": {
+          "bias": 0.771767,
+          "count": 7982,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 2.038754,
+          "rmse": 2.565974
+        },
+        "spot_id=porto_polo|lead_time_minutes=30.0": {
+          "bias": 0.775485,
+          "count": 7961,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 2.042121,
+          "rmse": 2.569635
+        },
+        "spot_id=porto_polo|lead_time_minutes=45.0": {
+          "bias": 0.781794,
+          "count": 7938,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 2.041812,
+          "rmse": 2.567273
+        },
+        "spot_id=porto_polo|lead_time_minutes=60.0": {
+          "bias": 0.78224,
+          "count": 7911,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "porto_polo"
+          },
+          "mae": 2.038691,
+          "rmse": 2.565812
+        },
+        "spot_id=santa_manza|lead_time_minutes=15.0": {
+          "bias": 0.26435,
+          "count": 9052,
+          "group": {
+            "lead_time_minutes": 15.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.549755,
+          "rmse": 2.056208
+        },
+        "spot_id=santa_manza|lead_time_minutes=30.0": {
+          "bias": 0.265014,
+          "count": 9051,
+          "group": {
+            "lead_time_minutes": 30.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.550936,
+          "rmse": 2.059816
+        },
+        "spot_id=santa_manza|lead_time_minutes=45.0": {
+          "bias": 0.270015,
+          "count": 9045,
+          "group": {
+            "lead_time_minutes": 45.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.549616,
+          "rmse": 2.052392
+        },
+        "spot_id=santa_manza|lead_time_minutes=60.0": {
+          "bias": 0.274126,
+          "count": 9045,
+          "group": {
+            "lead_time_minutes": 60.0,
+            "spot_id": "santa_manza"
+          },
+          "mae": 1.547353,
+          "rmse": 2.04594
+        }
+      },
+      "raw_nwp_eval_leads": {
+        "bias": 0.310811,
+        "count": 234062,
+        "lead_time_minutes": [
+          15,
+          30,
+          45,
+          60
+        ],
+        "mae": 1.641528,
+        "rmse": 2.157171
+      },
+      "raw_nwp_test": {
+        "bias": 0.310811,
+        "count": 234062,
+        "mae": 1.641528,
+        "rmse": 2.157171
+      },
+      "raw_nwp_threshold_detection": {
+        ">=12kt": {
+          "count": 234062,
+          "csi": 0.626436,
+          "fn": 13611,
+          "fp": 18768,
+          "precision": 0.743133,
+          "recall": 0.799567,
+          "threshold_kt": 12.0,
+          "tn": 147386,
+          "tp": 54297
+        },
+        ">=15kt": {
+          "count": 234062,
+          "csi": 0.579144,
+          "fn": 15104,
+          "fp": 10979,
+          "precision": 0.765766,
+          "recall": 0.703826,
+          "threshold_kt": 15.0,
+          "tn": 172086,
+          "tp": 35893
+        },
+        ">=20kt": {
+          "count": 234062,
+          "csi": 0.501306,
+          "fn": 7683,
+          "fp": 5302,
+          "precision": 0.711141,
+          "recall": 0.629485,
+          "threshold_kt": 20.0,
+          "tn": 208024,
+          "tp": 13053
+        },
+        ">=25kt": {
+          "count": 234062,
+          "csi": 0.416488,
+          "fn": 3032,
+          "fp": 3211,
+          "precision": 0.581192,
+          "recall": 0.595085,
+          "threshold_kt": 25.0,
+          "tn": 223363,
+          "tp": 4456
+        }
+      },
+      "residual_test": {
+        "bias": 0.140162,
+        "count": 234062,
+        "mae": 1.004638,
+        "rmse": 1.357343
+      },
+      "rmse_gain_pct_vs_raw": 37.078,
+      "rmse_gain_pct_vs_raw_eval_leads": 37.078,
+      "sample_weighting": {
+        "enabled": false
+      },
+      "skipped_fit_group_columns": [],
+      "skipped_fit_groups": [],
+      "test_rows": 234062,
+      "train_rows": 256491,
+      "type": "regression"
+    }
+  },
+  "numeric_column_count": 1453,
+  "run_id": "vnext_lgbm_wind_2025h2_to_2026h1",
+  "settings": {
+    "eval_lead_minute": [
+      15,
+      30,
+      45,
+      60
+    ],
+    "exclude_feature_pattern": [],
+    "fit_group_column": [],
+    "include_feature_pattern": [],
+    "include_lead_minute": [],
+    "max_test_rows": null,
+    "max_train_rows": null,
+    "min_group_test_rows": 100,
+    "min_group_train_rows": 1000,
+    "min_non_null_count": 100,
+    "min_non_null_ratio": 0.01,
+    "observed_regime_threshold_kt": [
+      12.0,
+      15.0,
+      20.0,
+      25.0
+    ],
+    "only_target": [
+      "labels__residual_wind_mean_ms"
+    ],
+    "skip_classification": true,
+    "target_high_wind_weight": 1.0,
+    "target_high_wind_weight_rule_kt": [],
+    "target_high_wind_weight_rule_ms": [],
+    "target_high_wind_weight_threshold_ms": null,
+    "test_fraction": 0.2
+  },
+  "skipped_targets": {},
+  "source_counts": {
+    "pre_sample_test_rows": 234062,
+    "pre_sample_train_rows": 256491,
+    "row_count": 490553,
+    "unique_issue_time_count": 19908
+  },
+  "source_parquet_count": 12,
+  "source_parquets": [
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2025_07/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2025_08/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2025_09/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2025_10/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2025_11/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2025_12/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2026_01/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2026_02/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2026_03/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2026_04/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2026_05/training_rows.parquet",
+    "/srv/data/corsewind/ml_dataset/training_tables/residual_windsup_sst_prev_vnext_2026_06/training_rows.parquet"
+  ],
+  "temporal_split_issue_time_utc": "2026-01-01T00:00:00Z",
+  "test_row_count": 234062,
+  "train_row_count": 256491
+}

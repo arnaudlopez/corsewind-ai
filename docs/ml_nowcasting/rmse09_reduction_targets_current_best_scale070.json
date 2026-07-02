@@ -1,0 +1,452 @@
+{
+  "audit_path": "docs/ml_nowcasting/rmse09_gap_audit_current_best_scale070.json",
+  "composite_targets": {
+    "actual_8plus": {
+      "current_rmse": 1.753427,
+      "current_sse_share_pct": 31.99,
+      "global_target_possible_by_only_this_group": false,
+      "non_group_global_rmse": 1.045712,
+      "required_group_rmse_for_global_threshold": null,
+      "required_group_rmse_reduction_pct": null,
+      "rows": 5258
+    },
+    "actual_8plus_or_lead_45_60": {
+      "current_rmse": 1.376005,
+      "current_sse_share_pct": 72.785,
+      "global_target_possible_by_only_this_group": true,
+      "non_group_global_rmse": 0.6615,
+      "required_group_rmse_for_global_threshold": 0.776227,
+      "required_group_rmse_reduction_pct": 43.588,
+      "rows": 19426
+    },
+    "critical_spots": {
+      "current_rmse": 1.432584,
+      "current_sse_share_pct": 52.658,
+      "global_target_possible_by_only_this_group": true,
+      "non_group_global_rmse": 0.872467,
+      "required_group_rmse_for_global_threshold": 0.343938,
+      "required_group_rmse_reduction_pct": 75.992,
+      "rows": 12966
+    },
+    "critical_spots_or_actual_8plus": {
+      "current_rmse": 1.459334,
+      "current_sse_share_pct": 64.909,
+      "global_target_possible_by_only_this_group": true,
+      "non_group_global_rmse": 0.751144,
+      "required_group_rmse_for_global_threshold": 0.708193,
+      "required_group_rmse_reduction_pct": 51.471,
+      "rows": 15402
+    },
+    "critical_spots_or_lead_45_60": {
+      "current_rmse": 1.334694,
+      "current_sse_share_pct": 81.89,
+      "global_target_possible_by_only_this_group": true,
+      "non_group_global_rmse": 0.539616,
+      "required_group_rmse_for_global_threshold": 0.837812,
+      "required_group_rmse_reduction_pct": 37.228,
+      "rows": 23230
+    },
+    "lead_45_60": {
+      "current_rmse": 1.339495,
+      "current_sse_share_pct": 60.747,
+      "global_target_possible_by_only_this_group": true,
+      "non_group_global_rmse": 0.794442,
+      "required_group_rmse_for_global_threshold": 0.573208,
+      "required_group_rmse_reduction_pct": 57.207,
+      "rows": 17109
+    },
+    "lead_60": {
+      "current_rmse": 1.359074,
+      "current_sse_share_pct": 36.577,
+      "global_target_possible_by_only_this_group": false,
+      "non_group_global_rmse": 1.009832,
+      "required_group_rmse_for_global_threshold": null,
+      "required_group_rmse_reduction_pct": null,
+      "rows": 10007
+    }
+  },
+  "current_rmse": 1.268019,
+  "current_sse": 50533.7806,
+  "format": "corsewind.rmse09_reduction_targets.v1",
+  "generated_at_utc": "2026-06-27T00:01:52.032272Z",
+  "group_targets": {
+    "actual_wind_bin_ms": [
+      {
+        "current_rmse": 1.753438,
+        "current_sse_share_pct": 31.917,
+        "global_target_possible_by_only_this_group": false,
+        "group": "8+",
+        "non_group_global_rmse": 1.046273,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 5246
+      },
+      {
+        "current_rmse": 1.036014,
+        "current_sse_share_pct": 19.844,
+        "global_target_possible_by_only_this_group": false,
+        "group": "0-2",
+        "non_group_global_rmse": 1.135256,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 9343
+      },
+      {
+        "current_rmse": 1.093912,
+        "current_sse_share_pct": 17.204,
+        "global_target_possible_by_only_this_group": false,
+        "group": "2-4",
+        "non_group_global_rmse": 1.153799,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 7265
+      },
+      {
+        "current_rmse": 1.208492,
+        "current_sse_share_pct": 15.869,
+        "global_target_possible_by_only_this_group": false,
+        "group": "4-6",
+        "non_group_global_rmse": 1.163064,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 5491
+      },
+      {
+        "current_rmse": 1.369858,
+        "current_sse_share_pct": 15.165,
+        "global_target_possible_by_only_this_group": false,
+        "group": "6-8",
+        "non_group_global_rmse": 1.16792,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 4084
+      }
+    ],
+    "lead_time_minutes": [
+      {
+        "current_rmse": 1.359074,
+        "current_sse_share_pct": 36.577,
+        "global_target_possible_by_only_this_group": false,
+        "group": 60.0,
+        "non_group_global_rmse": 1.009832,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 10007
+      },
+      {
+        "current_rmse": 1.31142,
+        "current_sse_share_pct": 24.17,
+        "global_target_possible_by_only_this_group": false,
+        "group": 45.0,
+        "non_group_global_rmse": 1.104196,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 7102
+      },
+      {
+        "current_rmse": 1.250536,
+        "current_sse_share_pct": 21.802,
+        "global_target_possible_by_only_this_group": false,
+        "group": 30.0,
+        "non_group_global_rmse": 1.121304,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 7045
+      },
+      {
+        "current_rmse": 1.10099,
+        "current_sse_share_pct": 17.451,
+        "global_target_possible_by_only_this_group": false,
+        "group": 15.0,
+        "non_group_global_rmse": 1.152077,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 7275
+      }
+    ],
+    "spot_id": [
+      {
+        "current_rmse": 1.520349,
+        "current_sse_share_pct": 19.609,
+        "global_target_possible_by_only_this_group": false,
+        "group": "la_tonnara",
+        "non_group_global_rmse": 1.136918,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 4287
+      },
+      {
+        "current_rmse": 1.497476,
+        "current_sse_share_pct": 18.176,
+        "global_target_possible_by_only_this_group": false,
+        "group": "santa_manza",
+        "non_group_global_rmse": 1.147007,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 4096
+      },
+      {
+        "current_rmse": 1.234581,
+        "current_sse_share_pct": 14.653,
+        "global_target_possible_by_only_this_group": false,
+        "group": "balistra",
+        "non_group_global_rmse": 1.171439,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 4858
+      },
+      {
+        "current_rmse": 1.010447,
+        "current_sse_share_pct": 12.862,
+        "global_target_possible_by_only_this_group": false,
+        "group": "porticcio",
+        "non_group_global_rmse": 1.183667,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 6366
+      },
+      {
+        "current_rmse": 1.170954,
+        "current_sse_share_pct": 10.205,
+        "global_target_possible_by_only_this_group": false,
+        "group": "porto_polo",
+        "non_group_global_rmse": 1.201577,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 3761
+      },
+      {
+        "current_rmse": 1.12882,
+        "current_sse_share_pct": 10.091,
+        "global_target_possible_by_only_this_group": false,
+        "group": "piantarella",
+        "non_group_global_rmse": 1.20234,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 4002
+      },
+      {
+        "current_rmse": 1.259202,
+        "current_sse_share_pct": 3.671,
+        "global_target_possible_by_only_this_group": false,
+        "group": "figari_eole",
+        "non_group_global_rmse": 1.244526,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1170
+      },
+      {
+        "current_rmse": 1.825083,
+        "current_sse_share_pct": 2.683,
+        "global_target_possible_by_only_this_group": false,
+        "group": "cap_corse",
+        "non_group_global_rmse": 1.250892,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 407
+      },
+      {
+        "current_rmse": 1.554714,
+        "current_sse_share_pct": 1.985,
+        "global_target_possible_by_only_this_group": false,
+        "group": "la_parata",
+        "non_group_global_rmse": 1.25537,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 415
+      },
+      {
+        "current_rmse": 1.386233,
+        "current_sse_share_pct": 1.685,
+        "global_target_possible_by_only_this_group": false,
+        "group": "lfvh",
+        "non_group_global_rmse": 1.25729,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 443
+      },
+      {
+        "current_rmse": 1.248207,
+        "current_sse_share_pct": 1.452,
+        "global_target_possible_by_only_this_group": false,
+        "group": "lfkf",
+        "non_group_global_rmse": 1.258779,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 471
+      },
+      {
+        "current_rmse": 1.402601,
+        "current_sse_share_pct": 1.39,
+        "global_target_possible_by_only_this_group": false,
+        "group": "lfvf",
+        "non_group_global_rmse": 1.259175,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 357
+      }
+    ],
+    "spot_id+lead_time_minutes": [
+      {
+        "current_rmse": 1.705399,
+        "current_sse_share_pct": 6.279,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 60.0,
+          "spot_id": "la_tonnara"
+        },
+        "non_group_global_rmse": 1.227564,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1091
+      },
+      {
+        "current_rmse": 1.597801,
+        "current_sse_share_pct": 5.38,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 45.0,
+          "spot_id": "la_tonnara"
+        },
+        "non_group_global_rmse": 1.233437,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1065
+      },
+      {
+        "current_rmse": 1.573746,
+        "current_sse_share_pct": 4.916,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 60.0,
+          "spot_id": "santa_manza"
+        },
+        "non_group_global_rmse": 1.236458,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1003
+      },
+      {
+        "current_rmse": 1.545343,
+        "current_sse_share_pct": 4.872,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 30.0,
+          "spot_id": "santa_manza"
+        },
+        "non_group_global_rmse": 1.236744,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1031
+      },
+      {
+        "current_rmse": 1.512747,
+        "current_sse_share_pct": 4.655,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 45.0,
+          "spot_id": "santa_manza"
+        },
+        "non_group_global_rmse": 1.238154,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1028
+      },
+      {
+        "current_rmse": 1.462087,
+        "current_sse_share_pct": 4.552,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 30.0,
+          "spot_id": "la_tonnara"
+        },
+        "non_group_global_rmse": 1.238822,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1076
+      },
+      {
+        "current_rmse": 1.30471,
+        "current_sse_share_pct": 4.251,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 45.0,
+          "spot_id": "balistra"
+        },
+        "non_group_global_rmse": 1.240774,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1262
+      },
+      {
+        "current_rmse": 1.333993,
+        "current_sse_share_pct": 4.06,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 60.0,
+          "spot_id": "balistra"
+        },
+        "non_group_global_rmse": 1.242011,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1153
+      },
+      {
+        "current_rmse": 1.350661,
+        "current_sse_share_pct": 3.733,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 15.0,
+          "spot_id": "santa_manza"
+        },
+        "non_group_global_rmse": 1.244126,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1034
+      },
+      {
+        "current_rmse": 1.085197,
+        "current_sse_share_pct": 3.638,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 60.0,
+          "spot_id": "porticcio"
+        },
+        "non_group_global_rmse": 1.24474,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1561
+      },
+      {
+        "current_rmse": 1.080815,
+        "current_sse_share_pct": 3.62,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 45.0,
+          "spot_id": "porticcio"
+        },
+        "non_group_global_rmse": 1.244856,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1566
+      },
+      {
+        "current_rmse": 1.21842,
+        "current_sse_share_pct": 3.469,
+        "global_target_possible_by_only_this_group": false,
+        "group": {
+          "lead_time_minutes": 30.0,
+          "spot_id": "balistra"
+        },
+        "non_group_global_rmse": 1.245831,
+        "required_group_rmse_for_global_threshold": null,
+        "required_group_rmse_reduction_pct": null,
+        "rows": 1181
+      }
+    ]
+  },
+  "mse_reduction_needed_pct": 49.623,
+  "row_count": 31429,
+  "target_sse": 25457.49,
+  "threshold_rmse": 0.9
+}

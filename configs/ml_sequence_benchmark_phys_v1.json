@@ -1,0 +1,90 @@
+{
+  "format": "corsewind.sequence_benchmark_config.v1",
+  "name": "phys_v1_foundation_sequence_benchmark",
+  "description": "Prepared lightweight configuration for Chronos/TimesFM/Moirai comparison after phys_v1 rebuild and tabular benchmark artifacts are complete.",
+  "ml_root": "/srv/data/corsewind/ml_dataset",
+  "remote_root": "/srv/data/corsewind/backfill_runner",
+  "training_run_id_prefix": "residual_windsup_sst_prev_phys_v1",
+  "start_month": "2024-01",
+  "end_month": "2026-06",
+  "train_year": 2025,
+  "eval_year": 2026,
+  "issue_hour_start_utc": 8,
+  "issue_hour_end_utc": 17,
+  "lead_minutes_focus": [15, 30, 45, 60],
+  "context_length_steps": 96,
+  "prediction_length_steps": 4,
+  "freq_minutes": 15,
+  "max_cutoffs_per_spot_default": 120,
+  "max_cutoffs_per_spot_full": 240,
+  "batch_size": 64,
+  "include_training_table_features": true,
+  "max_training_features": 1400,
+  "include_lightgbm_sequence_calibrator": false,
+  "include_moirai_default": false,
+  "models": {
+    "chronos2_covariate": {
+      "enabled": true,
+      "python": "/home/z2/corsewind-ml-smoke/.venv/bin/python",
+      "model_id": "amazon/chronos-2"
+    },
+    "chronos2_univariate": {
+      "enabled": true,
+      "python": "/home/z2/corsewind-ml-smoke/.venv/bin/python",
+      "model_id": "amazon/chronos-2",
+      "cross_learning": true
+    },
+    "timesfm": {
+      "enabled": true,
+      "python": "/home/z2/corsewind-ml-smoke/.venv-timesfm/bin/python",
+      "model_id": "google/timesfm-2.5-200m-pytorch"
+    },
+    "moirai": {
+      "enabled": false,
+      "python": "/home/z2/corsewind-ml-smoke/.venv-moirai/bin/python",
+      "model_id": "Salesforce/moirai-1.1-R-small",
+      "reason_disabled_by_default": "Run only after Chronos/TimesFM sanity because this adds another heavyweight dependency/runtime."
+    }
+  },
+  "evaluation_focus": {
+    "global": true,
+    "by_spot": true,
+    "by_horizon": true,
+    "critical_spots": ["la_tonnara", "santa_manza", "balistra"],
+    "high_wind_threshold_ms": 8.0,
+    "thermal_regime_bins": true
+  },
+  "guard": {
+    "wait_for_phys_v1_decision_report": true,
+    "decision_report_status": "/srv/data/corsewind/ml_dataset/run_logs/phys_v1_decision_report_watcher.status"
+  },
+  "dry_run_command": [
+    "python3",
+    "scripts/ml_dataset/launch_z2_rmse09_sequence_experiment.py",
+    "--training-run-id-prefix",
+    "residual_windsup_sst_prev_phys_v1",
+    "--remote-dry-run",
+    "--max-cutoffs-per-spot",
+    "120",
+    "--batch-size",
+    "64",
+    "--sweep-suffix",
+    "phys_v1_sequence_v1",
+    "--dry-run"
+  ],
+  "launch_command_after_phys_v1": [
+    "python3",
+    "scripts/ml_dataset/launch_z2_rmse09_sequence_experiment.py",
+    "--training-run-id-prefix",
+    "residual_windsup_sst_prev_phys_v1",
+    "--max-cutoffs-per-spot",
+    "120",
+    "--batch-size",
+    "64",
+    "--calibrator-n-jobs",
+    "1",
+    "--sweep-suffix",
+    "phys_v1_sequence_v1",
+    "--background"
+  ]
+}

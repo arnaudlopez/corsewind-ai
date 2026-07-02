@@ -3,11 +3,23 @@
 
 The Wind2D client computes the colour overlay pixel-by-pixel in JavaScript at interaction
 time, which is the main source of pan/zoom lag. This script renders the same colour field
-into a static PNG tile pyramid (Web Mercator / XYZ, the Google-Maps model) so the client can
-serve it through a plain L.tileLayer instead — instant, GPU-composited, progressive.
+into a static tile pyramid (Web Mercator / XYZ, the Google-Maps model) so the client can
+serve it through a plain L.tileLayer / GridLayer instead — instant, GPU-composited,
+progressive.
 
 The colour ramp and per-pixel alpha intentionally mirror the client (colorArray + the speed
 branch of renderFieldColor + drawWindHeatTile), so pre-baked tiles match the legend exactly.
+
+Modes per step:
+  - speed        colour WebP tiles (fallback path when the client cannot recolor data tiles)
+  - speed_data   u16 knots in RG + validity alpha (lossless PNG) — recolored live client-side
+  - gust_data    same encoding for gust speed, when the source step has gust_speed_ms
+  - cloud_rain   colour WebP tiles, when the source step has cloud/precipitation grids
+
+Incremental rebuilds: each step's source grids are hashed; steps whose hash and render
+parameters match the previously published set are hard-linked from it instead of being
+re-rendered. Old tile sets and stale staging directories are pruned after each publish so
+the tiles volume cannot grow without bound.
 
 Output layout:
     visualizations/wind2d/tiles/<model>/_sets/<tile-set>/<step>/<mode>/<z>/<x>/<y>.<format>
@@ -17,12 +29,14 @@ Output layout:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import re
 import shutil
 import time
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -39,7 +53,9 @@ DEFAULT_SCALE_MAX_KT = 14.0
 # overzooms beyond maxNativeZoom for closer views. Higher native zooms multiply rebuild time.
 DEFAULT_ZOOMS = tuple(range(8, 11))
 SPEED_DATA_MODE = "speed_data"
+GUST_DATA_MODE = "gust_data"
 SPEED_DATA_QUANTUM_KT = 0.1
+MANIFEST_FORMAT = "corsewind.model.raster_tiles.v2"
 
 # Per-model source JSON and the render alpha the client applies to each raw layer
 # (see rawModelFieldAt defaults in wind2d.js). Baking this keeps tiles visually identical
@@ -50,6 +66,9 @@ MODELS: dict[str, dict[str, Any]] = {
     "moloch": {"json": "moloch-corsica-latest.json", "render_alpha": 0.58},
     "icon2i": {"json": "icon2i-corsica-latest.json", "render_alpha": 0.58},
 }
+
+# Grid fields that affect the rendered tiles; hashed per step for incremental rebuilds.
+STEP_SOURCE_FIELDS = ("speed_ms", "gust_speed_ms", "cloud_cover_pct", "precipitation_mm")
 
 # Identical to colorArray() stops in wind2d.js.
 SPEED_STOPS: list[tuple[float, tuple[int, int, int]]] = [
@@ -123,21 +142,6 @@ def bilinear_wgs84(grid: np.ndarray, bbox: tuple[float, float, float, float], lo
     return values.astype(np.float32)
 
 
-def speed_color(intensity: np.ndarray) -> np.ndarray:
-    """Vectorised equivalent of colorArray() in wind2d.js."""
-    out = np.zeros((*intensity.shape, 3), dtype=np.float32)
-    out[intensity <= SPEED_STOPS[0][0]] = SPEED_STOPS[0][1]
-    for idx in range(1, len(SPEED_STOPS)):
-        stop, rgb = SPEED_STOPS[idx]
-        prev_stop, prev_rgb = SPEED_STOPS[idx - 1]
-        mask = (intensity > prev_stop) & (intensity <= stop)
-        t = ((intensity - prev_stop) / max(0.0001, stop - prev_stop))[..., None]
-        blended = np.array(prev_rgb, dtype=np.float32) + (np.array(rgb, dtype=np.float32) - np.array(prev_rgb, dtype=np.float32)) * t
-        out[mask] = blended[mask]
-    out[intensity > SPEED_STOPS[-1][0]] = SPEED_STOPS[-1][1]
-    return np.round(out)
-
-
 def gradient_color(intensity: np.ndarray, stops: list[tuple[float, tuple[int, int, int]]]) -> np.ndarray:
     out = np.zeros((*intensity.shape, 3), dtype=np.float32)
     out[intensity <= stops[0][0]] = stops[0][1]
@@ -150,6 +154,11 @@ def gradient_color(intensity: np.ndarray, stops: list[tuple[float, tuple[int, in
         out[mask] = blended[mask]
     out[intensity > stops[-1][0]] = stops[-1][1]
     return np.round(out)
+
+
+def speed_color(intensity: np.ndarray) -> np.ndarray:
+    """Vectorised equivalent of colorArray() in wind2d.js."""
+    return gradient_color(intensity, SPEED_STOPS)
 
 
 def render_tile(speed_kt: np.ndarray, scale_max_kt: float, render_alpha: float) -> Image.Image | None:
@@ -240,10 +249,33 @@ def step_key_for_step(step: dict[str, Any]) -> str:
     return f"{sign}h{hours:02d}m{minutes:02d}"
 
 
+def step_source_hash(step: dict[str, Any]) -> str:
+    """Deterministic hash of the grids that affect this step's rendered tiles."""
+    digest = hashlib.sha1()
+    for field in STEP_SOURCE_FIELDS:
+        value = step.get(field)
+        digest.update(field.encode())
+        digest.update(b"\x00")
+        if value is None:
+            digest.update(b"null")
+        else:
+            array = np.asarray(value, dtype=np.float32)
+            digest.update(str(array.shape).encode())
+            digest.update(np.nan_to_num(array, nan=-99999.0).tobytes())
+        digest.update(b"\x01")
+    return digest.hexdigest()
+
+
 def slug_part(value: Any, fallback: str = "unknown") -> str:
     text = str(value or fallback)
     slug = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-").lower()
     return slug or fallback
+
+
+def render_params_key(zooms: tuple[int, ...], scale: int, tile_format: str, webp_quality: int, webp_method: int, scale_max_kt: float, render_alpha: float) -> str:
+    zoom_label = "-".join(str(zoom) for zoom in zooms)
+    quality_label = f"-q{webp_quality}-m{webp_method}" if tile_format == "webp" else ""
+    return f"{tile_format}-s{scale}{quality_label}-z{zoom_label}-max{scale_max_kt:g}-a{render_alpha:g}"
 
 
 def tile_set_key(payload: dict[str, Any], zooms: tuple[int, ...], scale: int, tile_format: str, webp_quality: int, webp_method: int) -> str:
@@ -277,6 +309,165 @@ def publish_tile_set(staging_root: Path, tile_root: Path) -> None:
         shutil.rmtree(backup_root)
 
 
+def prune_output_root(output_root: Path, keep_tile_set: str) -> int:
+    """Delete tile sets other than the published one plus stale staging/backup leftovers.
+
+    Without this every model run leaves its previous ~20-80 MB set behind and the tiles
+    volume grows without bound (AROME-PI publishes many runs per day)."""
+    removed = 0
+    sets_root = output_root / "_sets"
+    if sets_root.exists():
+        for entry in sets_root.iterdir():
+            if entry.name != keep_tile_set:
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += 1
+    staging_parent = output_root / "_staging"
+    if staging_parent.exists():
+        for entry in staging_parent.iterdir():
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+        try:
+            staging_parent.rmdir()
+        except OSError:
+            pass
+    for entry in output_root.iterdir():
+        # Anything else that is a directory is either a `.previous-*` backup or a leftover from
+        # the pre-`_sets` layout (step dirs written directly under the model root) — remove it.
+        if entry.is_dir() and entry.name != "_sets":
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+    return removed
+
+
+def link_or_copy_tree(source: Path, target: Path) -> None:
+    """Mirror a published step directory into staging via hard links (fast, no extra disk)."""
+    for dirpath, _dirnames, filenames in os.walk(source):
+        rel = Path(dirpath).relative_to(source)
+        (target / rel).mkdir(parents=True, exist_ok=True)
+        for name in filenames:
+            src = Path(dirpath) / name
+            dst = target / rel / name
+            try:
+                os.link(src, dst)
+            except OSError:
+                shutil.copy2(src, dst)
+
+
+def render_step_task(task: dict[str, Any]) -> dict[str, Any]:
+    """Render every tile of one forecast step into the staging directory.
+
+    Top-level (picklable) so it can run in a ProcessPoolExecutor worker: steps are
+    independent, which makes per-step parallelism safe and coarse-grained."""
+    staging_root = Path(task["staging_root"])
+    bbox = tuple(task["bbox"])
+    zooms = tuple(task["zooms"])
+    out_px = int(task["out_px"])
+    scale_max_kt = float(task["scale_max_kt"])
+    render_alpha = float(task["render_alpha"])
+    ext = task["ext"]
+    tile_format = task["tile_format"]
+    webp_quality = int(task["webp_quality"])
+    webp_method = int(task["webp_method"])
+    step_key = task["step_key"]
+
+    speed_ms = np.array(task["speed_ms"], dtype=np.float32)
+    gust_ms = np.array(task["gust_speed_ms"], dtype=np.float32) if task.get("gust_speed_ms") is not None else None
+    cloud_pct = np.array(task["cloud_cover_pct"], dtype=np.float32) if task.get("cloud_cover_pct") is not None else None
+    precipitation_mm = np.array(task["precipitation_mm"], dtype=np.float32) if task.get("precipitation_mm") is not None else None
+    has_weather = cloud_pct is not None or precipitation_mm is not None
+
+    grid = np.arange(out_px, dtype=np.float32) + 0.5
+    px, py = np.meshgrid(grid, grid)
+
+    def save_color(image: Image.Image, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if tile_format == "webp":
+            image.save(path, "WEBP", quality=webp_quality, method=webp_method)
+        else:
+            image.save(path, compress_level=2)
+
+    counts = {"tile_count": 0, "color_tile_count": 0, "data_tile_count": 0}
+    render_seconds = 0.0
+    encode_seconds = 0.0
+    for z in zooms:
+        x_range, y_range = tile_ranges(bbox, z)
+        for x_tile in x_range:
+            for y_tile in y_range:
+                render_started = time.perf_counter()
+                lons, lats = tile_pixel_to_lonlat(z, x_tile, y_tile, px, py, out_px)
+                speed_kt = bilinear_wgs84(speed_ms, bbox, lons, lats) * KNOTS_PER_MPS
+                image = render_tile(speed_kt, scale_max_kt, render_alpha)
+                data_image = render_speed_data_tile(speed_kt)
+                gust_image = None
+                if gust_ms is not None:
+                    gust_kt = bilinear_wgs84(gust_ms, bbox, lons, lats) * KNOTS_PER_MPS
+                    gust_image = render_speed_data_tile(gust_kt)
+                render_seconds += time.perf_counter() - render_started
+                encode_started = time.perf_counter()
+                if image is not None:
+                    save_color(image, staging_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}")
+                    counts["tile_count"] += 1
+                    counts["color_tile_count"] += 1
+                if data_image is not None:
+                    data_path = staging_root / step_key / SPEED_DATA_MODE / str(z) / str(x_tile) / f"{y_tile}.png"
+                    data_path.parent.mkdir(parents=True, exist_ok=True)
+                    data_image.save(data_path, compress_level=2)
+                    counts["tile_count"] += 1
+                    counts["data_tile_count"] += 1
+                if gust_image is not None:
+                    gust_path = staging_root / step_key / GUST_DATA_MODE / str(z) / str(x_tile) / f"{y_tile}.png"
+                    gust_path.parent.mkdir(parents=True, exist_ok=True)
+                    gust_image.save(gust_path, compress_level=2)
+                    counts["tile_count"] += 1
+                    counts["data_tile_count"] += 1
+                encode_seconds += time.perf_counter() - encode_started
+                if has_weather:
+                    weather_render_started = time.perf_counter()
+                    cloud_tile = bilinear_wgs84(cloud_pct, bbox, lons, lats) if cloud_pct is not None else None
+                    rain_tile = bilinear_wgs84(precipitation_mm, bbox, lons, lats) if precipitation_mm is not None else None
+                    weather_image = render_cloud_rain_tile(cloud_tile, rain_tile)
+                    render_seconds += time.perf_counter() - weather_render_started
+                    if weather_image is not None:
+                        encode_started = time.perf_counter()
+                        save_color(weather_image, staging_root / step_key / "cloud_rain" / str(z) / str(x_tile) / f"{y_tile}.{ext}")
+                        encode_seconds += time.perf_counter() - encode_started
+                        counts["tile_count"] += 1
+    counts["render_s"] = render_seconds
+    counts["encode_s"] = encode_seconds
+    counts["step_key"] = step_key
+    return counts
+
+
+def load_previous_manifest(output_root: Path) -> dict[str, Any] | None:
+    manifest_path = output_root / "manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def reusable_previous_steps(previous: dict[str, Any] | None, output_root: Path, params_key: str) -> dict[str, dict[str, Any]]:
+    """Map step key → previous manifest step entry when its rendered dir can be reused."""
+    if not previous:
+        return {}
+    if previous.get("paramsKey") != params_key:
+        return {}
+    previous_set = previous.get("tileSet")
+    if not previous_set:
+        return {}
+    previous_root = output_root / "_sets" / previous_set
+    if not previous_root.exists():
+        return {}
+    reusable: dict[str, dict[str, Any]] = {}
+    for step in previous.get("steps") or []:
+        key = step.get("key")
+        if key and step.get("sourceHash") and (previous_root / key).exists():
+            reusable[key] = step
+    return reusable
+
+
 def build(
     model: str,
     zooms: tuple[int, ...],
@@ -285,6 +476,7 @@ def build(
     tile_format: str = "webp",
     webp_quality: int = 90,
     webp_method: int = 2,
+    workers: int = 1,
 ) -> dict[str, Any]:
     build_started = time.perf_counter()
     spec = MODELS[model]
@@ -301,30 +493,32 @@ def build(
     output_root = WIND2D / "tiles" / model
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # Render each 256-CSS-px tile at `scale`× physical pixels (e.g. 512) for crisp display on
-    # retina/hi-dpi screens. The manifest tileSize stays 256, so the browser fits the larger
-    # image into the 256 CSS box — sharp on dpr≥2, fine on dpr 1.
+    # Render each 256-CSS-px tile at `scale`× physical pixels for crisp display on hi-dpi
+    # screens. The manifest tileSize stays 256, so the browser fits the larger image into the
+    # 256 CSS box — sharp on dpr≥2, fine on dpr 1.
     out_px = TILE_SIZE * scale
-    # WebP is ~8× smaller than PNG for these smooth translucent overlays (PNG ~175 KB vs WebP q90
-    # ~22 KB per 512px tile), which is the dominant lever for fast tile serving over the network.
+    # WebP is ~8× smaller than PNG for these smooth translucent overlays, which is the dominant
+    # lever for fast colour-tile serving over the network. Data tiles stay lossless PNG.
     ext = "webp" if tile_format == "webp" else "png"
+    params_key = render_params_key(zooms, scale, ext, webp_quality, webp_method, scale_max_kt, render_alpha)
     tile_set = tile_set_key(payload, zooms, scale, ext, webp_quality, webp_method)
     tile_root = output_root / "_sets" / tile_set
     staging_root = output_root / "_staging" / f"{tile_set}-{os.getpid()}"
     if staging_root.exists():
         shutil.rmtree(staging_root)
     staging_root.mkdir(parents=True, exist_ok=True)
-    grid = np.arange(out_px, dtype=np.float32) + 0.5
-    px, py = np.meshgrid(grid, grid)
+
+    previous_manifest = load_previous_manifest(output_root)
+    reusable_steps = reusable_previous_steps(previous_manifest, output_root, params_key)
+    previous_set_root = output_root / "_sets" / str(previous_manifest.get("tileSet")) if previous_manifest else None
 
     manifest_steps: list[dict[str, Any]] = []
     seen_step_keys: set[str] = set()
     manifest_modes: set[str] = {"speed", SPEED_DATA_MODE}
-    tile_count = 0
-    color_tile_count = 0
-    data_tile_count = 0
-    render_seconds = 0.0
-    encode_seconds = 0.0
+    pending_tasks: list[dict[str, Any]] = []
+    reused_step_count = 0
+    reuse_seconds = 0.0
+
     for step in steps:
         lead_hour = normalise_lead_hour(step)
         step_key = step_key_for_step(step)
@@ -332,61 +526,16 @@ def build(
             valid_time = step.get("valid_time_utc") or "unknown valid time"
             raise RuntimeError(f"Duplicate raster step key {step_key!r} for {model} at {valid_time}")
         seen_step_keys.add(step_key)
-        speed_ms = np.array(step["speed_ms"], dtype=np.float32)
-        cloud_pct = np.array(step["cloud_cover_pct"], dtype=np.float32) if step.get("cloud_cover_pct") is not None else None
-        precipitation_mm = np.array(step["precipitation_mm"], dtype=np.float32) if step.get("precipitation_mm") is not None else None
-        has_weather = cloud_pct is not None or precipitation_mm is not None
+        source_hash = step_source_hash(step)
+        has_weather = step.get("cloud_cover_pct") is not None or step.get("precipitation_mm") is not None
+        has_gust = step.get("gust_speed_ms") is not None
         step_modes = ["speed", SPEED_DATA_MODE]
+        if has_gust:
+            step_modes.append(GUST_DATA_MODE)
+            manifest_modes.add(GUST_DATA_MODE)
         if has_weather:
             step_modes.append("cloud_rain")
             manifest_modes.add("cloud_rain")
-        for z in zooms:
-            x_range, y_range = tile_ranges(bbox, z)
-            for x_tile in x_range:
-                for y_tile in y_range:
-                    render_started = time.perf_counter()
-                    lons, lats = tile_pixel_to_lonlat(z, x_tile, y_tile, px, py, out_px)
-                    speed_kt = bilinear_wgs84(speed_ms, bbox, lons, lats) * KNOTS_PER_MPS
-                    image = render_tile(speed_kt, scale_max_kt, render_alpha)
-                    data_image = render_speed_data_tile(speed_kt)
-                    render_seconds += time.perf_counter() - render_started
-                    if image is None:
-                        pass
-                    else:
-                        path = staging_root / step_key / "speed" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
-                        path.parent.mkdir(parents=True, exist_ok=True)
-                        encode_started = time.perf_counter()
-                        if tile_format == "webp":
-                            image.save(path, "WEBP", quality=webp_quality, method=webp_method)
-                        else:
-                            image.save(path, compress_level=2)
-                        encode_seconds += time.perf_counter() - encode_started
-                        tile_count += 1
-                        color_tile_count += 1
-                    if data_image is not None:
-                        data_path = staging_root / step_key / SPEED_DATA_MODE / str(z) / str(x_tile) / f"{y_tile}.png"
-                        data_path.parent.mkdir(parents=True, exist_ok=True)
-                        encode_started = time.perf_counter()
-                        data_image.save(data_path, compress_level=2)
-                        encode_seconds += time.perf_counter() - encode_started
-                        tile_count += 1
-                        data_tile_count += 1
-                    if has_weather:
-                        weather_render_started = time.perf_counter()
-                        cloud_tile = bilinear_wgs84(cloud_pct, bbox, lons, lats) if cloud_pct is not None else None
-                        rain_tile = bilinear_wgs84(precipitation_mm, bbox, lons, lats) if precipitation_mm is not None else None
-                        weather_image = render_cloud_rain_tile(cloud_tile, rain_tile)
-                        render_seconds += time.perf_counter() - weather_render_started
-                        if weather_image is not None:
-                            path = staging_root / step_key / "cloud_rain" / str(z) / str(x_tile) / f"{y_tile}.{ext}"
-                            path.parent.mkdir(parents=True, exist_ok=True)
-                            encode_started = time.perf_counter()
-                            if tile_format == "webp":
-                                weather_image.save(path, "WEBP", quality=webp_quality, method=webp_method)
-                            else:
-                                weather_image.save(path, compress_level=2)
-                            encode_seconds += time.perf_counter() - encode_started
-                            tile_count += 1
         manifest_steps.append(
             {
                 "key": step_key,
@@ -394,48 +543,101 @@ def build(
                 "lead_minutes": step.get("lead_minutes"),
                 "valid_time_utc": step.get("valid_time_utc"),
                 "modes": step_modes,
+                "sourceHash": source_hash,
             }
         )
 
-    manifest = {
-        "format": "corsewind.model.raster_tiles.v1",
-        "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "model": model,
-        "modelLabel": payload.get("model_label"),
-        "runTimeUtc": payload.get("run_time_utc"),
-        "bounds_wgs84": list(bbox),
-        "tileSize": TILE_SIZE,
-        "renderScale": scale,
-        "tilePixels": TILE_SIZE * scale,
-        "zooms": list(zooms),
-        "modes": sorted(manifest_modes),
-        "encoding": "color",
-        "tileFormat": ext,
-        "tileSet": tile_set,
-        "dataTileFormat": "png",
-        "dataUrlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{SPEED_DATA_MODE}/{{z}}/{{x}}/{{y}}.png",
-        "encodings": {
-            SPEED_DATA_MODE: {
-                "type": "u16_kt_rg_alpha",
-                "quantumKt": SPEED_DATA_QUANTUM_KT,
-                "urlMode": SPEED_DATA_MODE,
-                "tileFormat": "png",
+        previous_step = reusable_steps.get(step_key)
+        if previous_step and previous_step.get("sourceHash") == source_hash and previous_set_root:
+            # Identical source grids and render params: hard-link the already-rendered step
+            # directory instead of re-rendering it. On AROME-PI rolling updates most steps are
+            # unchanged between runs, so rebuilds become nearly incremental.
+            reuse_started = time.perf_counter()
+            link_or_copy_tree(previous_set_root / step_key, staging_root / step_key)
+            reuse_seconds += time.perf_counter() - reuse_started
+            reused_step_count += 1
+            continue
+        pending_tasks.append(
+            {
+                "staging_root": str(staging_root),
+                "bbox": list(bbox),
+                "zooms": list(zooms),
+                "out_px": out_px,
+                "scale_max_kt": scale_max_kt,
+                "render_alpha": render_alpha,
+                "ext": ext,
+                "tile_format": tile_format,
+                "webp_quality": webp_quality,
+                "webp_method": webp_method,
+                "step_key": step_key,
+                "speed_ms": step["speed_ms"],
+                "gust_speed_ms": step.get("gust_speed_ms"),
+                "cloud_cover_pct": step.get("cloud_cover_pct"),
+                "precipitation_mm": step.get("precipitation_mm"),
             }
-        },
-        "webpQuality": webp_quality if ext == "webp" else None,
-        "webpMethod": webp_method if ext == "webp" else None,
-        "steps": manifest_steps,
-        "urlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.{ext}",
-        "speedScaleMaxKt": scale_max_kt,
-        "renderAlpha": render_alpha,
-        "opacity": 1.0,
-        "tileCount": tile_count,
-        "colorTileCount": color_tile_count,
-        "dataTileCount": data_tile_count,
-        "source": {"json": str(json_path.relative_to(ROOT))},
-    }
-    publish_seconds = 0.0
+        )
+
+    tile_count = 0
+    color_tile_count = 0
+    data_tile_count = 0
+    render_seconds = 0.0
+    encode_seconds = 0.0
     try:
+        if pending_tasks:
+            if workers > 1 and len(pending_tasks) > 1:
+                with ProcessPoolExecutor(max_workers=min(workers, len(pending_tasks))) as pool:
+                    results = list(pool.map(render_step_task, pending_tasks))
+            else:
+                results = [render_step_task(task) for task in pending_tasks]
+            for result in results:
+                tile_count += result["tile_count"]
+                color_tile_count += result["color_tile_count"]
+                data_tile_count += result["data_tile_count"]
+                render_seconds += result["render_s"]
+                encode_seconds += result["encode_s"]
+
+        manifest = {
+            "format": MANIFEST_FORMAT,
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "model": model,
+            "modelLabel": payload.get("model_label"),
+            "runTimeUtc": payload.get("run_time_utc"),
+            "bounds_wgs84": list(bbox),
+            "tileSize": TILE_SIZE,
+            "renderScale": scale,
+            "tilePixels": TILE_SIZE * scale,
+            "zooms": list(zooms),
+            "modes": sorted(manifest_modes),
+            "encoding": "color",
+            "tileFormat": ext,
+            "tileSet": tile_set,
+            "paramsKey": params_key,
+            "dataTileFormat": "png",
+            "dataUrlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{SPEED_DATA_MODE}/{{z}}/{{x}}/{{y}}.png",
+            "encodings": {
+                mode: {
+                    "type": "u16_kt_rg_alpha",
+                    "quantumKt": SPEED_DATA_QUANTUM_KT,
+                    "urlMode": mode,
+                    "tileFormat": "png",
+                    "urlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{mode}/{{z}}/{{x}}/{{y}}.png",
+                }
+                for mode in sorted(manifest_modes & {SPEED_DATA_MODE, GUST_DATA_MODE})
+            },
+            "webpQuality": webp_quality if ext == "webp" else None,
+            "webpMethod": webp_method if ext == "webp" else None,
+            "steps": manifest_steps,
+            "urlTemplate": f"./tiles/{model}/_sets/{tile_set}/{{step}}/{{mode}}/{{z}}/{{x}}/{{y}}.{ext}",
+            "speedScaleMaxKt": scale_max_kt,
+            "renderAlpha": render_alpha,
+            "opacity": 1.0,
+            "tileCount": tile_count,
+            "colorTileCount": color_tile_count,
+            "dataTileCount": data_tile_count,
+            "reusedStepCount": reused_step_count,
+            "renderedStepCount": len(pending_tasks),
+            "source": {"json": str(json_path.relative_to(ROOT))},
+        }
         publish_started = time.perf_counter()
         publish_tile_set(staging_root, tile_root)
         publish_seconds = time.perf_counter() - publish_started
@@ -444,16 +646,23 @@ def build(
             "total_s": round(total_seconds, 3),
             "render_s": round(render_seconds, 3),
             "encode_s": round(encode_seconds, 3),
+            "reuse_s": round(reuse_seconds, 3),
             "publish_s": round(publish_seconds, 3),
-            "other_s": round(max(0.0, total_seconds - render_seconds - encode_seconds - publish_seconds), 3),
-            "tiles_per_s": round(tile_count / total_seconds, 3) if total_seconds > 0 else None,
+            "workers": workers,
+            "tiles_per_s": round(tile_count / total_seconds, 3) if total_seconds > 0 and tile_count else None,
         }
         write_json_atomic(output_root / "manifest.json", manifest)
     except Exception:
         if staging_root.exists():
             shutil.rmtree(staging_root)
         raise
+    pruned = prune_output_root(output_root, tile_set)
+    manifest["prunedEntries"] = pruned
     return manifest
+
+
+def default_workers() -> int:
+    return max(1, min(3, (os.cpu_count() or 2) - 1))
 
 
 def parse_args() -> argparse.Namespace:
@@ -466,6 +675,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--format", dest="tile_format", choices=["webp", "png"], default="webp", help="Tile image format. WebP is ~8× smaller than PNG for these overlays.")
     parser.add_argument("--webp-quality", type=int, default=90, help="WebP quality (lossy). 90 is visually lossless for these translucent overlays.")
     parser.add_argument("--webp-method", type=int, default=2, choices=range(0, 7), help="WebP encoder effort, 0=fastest and 6=slowest. Lower keeps server rebuilds responsive.")
+    parser.add_argument("--workers", type=int, default=default_workers(), help="Parallel step-render workers (steps are independent). 1 disables multiprocessing.")
     return parser.parse_args()
 
 
@@ -478,13 +688,23 @@ def main() -> None:
                 print(f"skip {model}: source JSON missing")
                 continue
             raise FileNotFoundError(f"Model JSON not found for {model}")
-        manifest = build(model, tuple(args.zooms), args.scale_max_kt, args.scale, args.tile_format, args.webp_quality, args.webp_method)
+        manifest = build(
+            model,
+            tuple(args.zooms),
+            args.scale_max_kt,
+            args.scale,
+            args.tile_format,
+            args.webp_quality,
+            args.webp_method,
+            max(1, args.workers),
+        )
         timings = manifest.get("timings") or {}
         print(
-            f"{model}: {manifest['tileCount']} tiles · {len(manifest['steps'])} steps · "
-            f"zooms {manifest['zooms']} · {manifest['tilePixels']}px · {manifest['tileFormat']} · "
-            f"{timings.get('total_s', '?')}s total · render {timings.get('render_s', '?')}s · "
-            f"encode {timings.get('encode_s', '?')}s"
+            f"{model}: {manifest['tileCount']} tiles rendered · {manifest['reusedStepCount']} steps reused · "
+            f"{manifest['renderedStepCount']} steps rendered · zooms {manifest['zooms']} · {manifest['tilePixels']}px · "
+            f"{manifest['tileFormat']} · {timings.get('total_s', '?')}s total (render {timings.get('render_s', '?')}s, "
+            f"encode {timings.get('encode_s', '?')}s, reuse {timings.get('reuse_s', '?')}s, workers {timings.get('workers', '?')}) · "
+            f"pruned {manifest.get('prunedEntries', 0)} old entries"
         )
         print(f"  wrote {(WIND2D / 'tiles' / model / 'manifest.json').relative_to(ROOT)}")
 

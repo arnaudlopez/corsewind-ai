@@ -15,10 +15,10 @@ DEFAULT_OUTPUT_DIR = ROOT / "data/raw/landcover/esa_worldcover_v200_2021"
 BASE_URL = "https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map"
 
 
-def tile_name(north_lat: int, west_lon: int) -> str:
-    ns = "N" if north_lat >= 0 else "S"
+def tile_name(south_lat: int, west_lon: int) -> str:
+    ns = "N" if south_lat >= 0 else "S"
     ew = "E" if west_lon >= 0 else "W"
-    return f"ESA_WorldCover_10m_2021_v200_{ns}{abs(north_lat):02d}{ew}{abs(west_lon):03d}_Map.tif"
+    return f"ESA_WorldCover_10m_2021_v200_{ns}{abs(south_lat):02d}{ew}{abs(west_lon):03d}_Map.tif"
 
 
 def required_tiles(bbox: list[float]) -> list[tuple[str, str]]:
@@ -26,12 +26,12 @@ def required_tiles(bbox: list[float]) -> list[tuple[str, str]]:
     eps = 1e-9
     lon_start = math.floor(min_lon / 3.0) * 3
     lon_end = math.floor((max_lon - eps) / 3.0) * 3
-    lat_north_min = math.ceil((min_lat + eps) / 3.0) * 3
-    lat_north_max = math.ceil(max_lat / 3.0) * 3
+    lat_start = math.floor(min_lat / 3.0) * 3
+    lat_end = math.floor((max_lat - eps) / 3.0) * 3
     tiles = []
-    for north_lat in range(lat_north_min, lat_north_max + 1, 3):
+    for south_lat in range(lat_start, lat_end + 1, 3):
         for west_lon in range(lon_start, lon_end + 1, 3):
-            name = tile_name(north_lat, west_lon)
+            name = tile_name(south_lat, west_lon)
             tiles.append((name, f"{BASE_URL}/{name}"))
     return tiles
 

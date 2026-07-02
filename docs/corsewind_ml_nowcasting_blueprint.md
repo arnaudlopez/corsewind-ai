@@ -276,6 +276,9 @@ Features candidates :
 - humidite actuelle et tendance ;
 - ensoleillement cumule depuis 8 h locale ;
 - pluie cumulee 1 h, 3 h ;
+- pluie radar 5 min, 15 min, 30 min, 1 h autour du spot ;
+- distance/direction de la cellule pluvieuse la plus proche ;
+- indicateur pluie ou convection dans le secteur amont du vent ;
 - ecart entre observation et NWP brut au dernier pas disponible ;
 - indicateur "thermique potentiel" ;
 - indicateur "vent synoptique dominant".
@@ -319,6 +322,36 @@ Pour chaque spot/station, il faut stocker :
 - gradient local si disponible ;
 - comparaison entre plusieurs modeles ;
 - ecart entre NWP et derniere observation.
+
+### Donnees oceaniques Copernicus Marine
+
+Source integree :
+
+- produit `SST_MED_PHY_SUBSKIN_L4_NRT_010_036` ;
+- dataset `cmems_obs-sst_med_phy-sst_nrt_diurnal-oi-0.0625deg_PT1H-m` ;
+- variable `analysed_sst`, convertie de Kelvin en Celsius ;
+- pas horaire, grille 0.0625 deg ;
+- collecte par `scripts/ml_dataset/collect_copernicus_marine_sst.py`.
+
+Usage dans le modele :
+
+- `sst_c` au pixel marin le plus proche du spot ;
+- distance entre le spot et le pixel SST utilise ;
+- contraste `temperature_observee_terre_c - sst_c` quand une temperature
+  locale fiable est disponible ;
+- tendance SST lente sur les jours precedents si l'historique devient
+  suffisant.
+
+Champs Copernicus candidats mais non prioritaires :
+
+- courants surface `uo`/`vo` ;
+- profondeur de couche melangee `mlotst` ;
+- vagues `VHM0`, `VMDR`, `VTPK` ;
+- vent mer satellite, surtout pour audit ou backtest.
+
+Ces champs ne doivent etre ajoutes au training qu'apres comparaison de scores
+avec et sans eux, car leur effet sur une correction de vent a 15 minutes est
+plus indirect que la SST.
 
 ### Metadonnees spot
 
@@ -678,6 +711,95 @@ visualizations/wind2d/ml-nowcast-corsica-latest.json
 ```
 
 Le contrat exact de sortie sera defini quand le premier prototype sera pret.
+
+## Machine de test GPU
+
+La machine de test disponible pour les benchmarks ML est :
+
+```text
+ssh z2
+hostname: Z2
+GPU: NVIDIA Quadro P2000
+VRAM: 5120 MiB
+driver: 550.163.01
+python systeme: 3.13.5
+```
+
+Role prevu :
+
+- tester l'environnement CUDA/PyTorch ;
+- mesurer la latence inference TTM ;
+- mesurer la latence inference Chronos-2 sur petits batchs ;
+- verifier la faisabilite d'un service modele charge en memoire ;
+- comparer CPU vs GPU sur le meme jeu de features ;
+- produire les premiers rapports de benchmark.
+
+Contraintes :
+
+- 5 Go de VRAM suffisent probablement pour TTM et les baselines tabulaires ;
+- Chronos-2 doit etre teste avec batchs modestes et precision adaptee ;
+- TimesFM/Moirai peuvent etre plus contraignants et ne sont pas prioritaires ;
+- Python 3.13 peut etre trop recent pour certaines dependances ML, donc creer
+  un environnement Python 3.10 ou 3.11 si necessaire.
+
+Premiers tests a lancer sur `z2` :
+
+```text
+1. nvidia-smi et verification driver
+2. installation venv/conda Python 3.10 ou 3.11
+3. installation PyTorch CUDA
+4. smoke test torch.cuda.is_available()
+5. inference TTM sur donnees synthetiques
+6. inference Chronos-2 sur une station pilote
+7. mesure latence batch 1, 10, 50, 100 stations
+```
+
+Statut 2026-06-23 :
+
+- PyTorch CUDA valide sur `z2` ;
+- Chronos-2 valide en inference GPU avec quantiles ;
+- TTM r2 valide en inference GPU ;
+- TTM necessite un environnement separe avec `transformers<5` ;
+- rapport detaille :
+  `docs/ml_nowcasting/z2_gpu_smoke_test_2026-06-23.md`.
+
+## Evolution moteur vers dataset ML
+
+Le moteur de forecast doit evoluer en collecteur historique. Il doit continuer
+a watcher et publier les couches meteo, mais aussi archiver les runs normalises
+necessaires au dataset ML et extraire les valeurs modele aux spots.
+
+Premiere brique implementee :
+
+```text
+scripts/ml_dataset/archive_model_layer_snapshot.py
+scripts/ml_dataset/sample_model_layers_at_spots.py
+```
+
+Activation dans le moteur :
+
+```bash
+python3 scripts/run_forecast_update_engine.py --enable-ml-dataset-archive
+```
+
+Plan detaille :
+
+```text
+docs/ml_nowcasting/dataset_engine_evolution_plan.md
+```
+
+Le registry spots/stations ML est importe depuis Beacon Live :
+
+```text
+configs/ml_spots.json
+```
+
+Scripts d'integration Beacon Live :
+
+```text
+scripts/ml_dataset/import_beacon_live_spots.py
+scripts/ml_dataset/import_beacon_live_observations.py
+```
 
 ## Controle qualite
 

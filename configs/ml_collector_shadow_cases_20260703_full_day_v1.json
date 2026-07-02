@@ -1,0 +1,31 @@
+{
+  "format": "corsewind.collector_hindcast_cases.v1",
+  "generated_at_utc": "2026-07-02T07:09:30.340990Z",
+  "description": "Unseen shadow validation cases for the 2026-07-03 windsurf day. Run after observations are available through 2026-07-03T17:00:00Z.",
+  "cases": [
+    {
+      "run_id": "collector_20260703T0645_unseen_full_day_v1",
+      "run_time_utc": "2026-07-03T06:00:00Z",
+      "issue_time_utc": "2026-07-03T06:45:00Z",
+      "target_end_utc": "2026-07-03T17:00:00Z"
+    },
+    {
+      "run_id": "collector_20260703T0845_unseen_full_day_v1",
+      "run_time_utc": "2026-07-03T06:00:00Z",
+      "issue_time_utc": "2026-07-03T08:45:00Z",
+      "target_end_utc": "2026-07-03T17:00:00Z"
+    },
+    {
+      "run_id": "collector_20260703T1045_unseen_full_day_v1",
+      "run_time_utc": "2026-07-03T06:00:00Z",
+      "issue_time_utc": "2026-07-03T10:45:00Z",
+      "target_end_utc": "2026-07-03T17:00:00Z"
+    },
+    {
+      "run_id": "collector_20260703T1245_unseen_full_day_v1",
+      "run_time_utc": "2026-07-03T06:00:00Z",
+      "issue_time_utc": "2026-07-03T12:45:00Z",
+      "target_end_utc": "2026-07-03T17:00:00Z"
+    }
+  ]
+}

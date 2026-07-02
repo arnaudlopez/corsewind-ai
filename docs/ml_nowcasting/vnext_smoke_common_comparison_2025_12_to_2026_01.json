@@ -1,0 +1,481 @@
+{
+  "by_lead": {
+    "15": {
+      "old": {
+        "bias": -0.374612,
+        "count": 8452,
+        "mae": 1.180227,
+        "rmse": 1.621429
+      },
+      "raw": {
+        "bias": 0.642582,
+        "count": 8452,
+        "mae": 1.809748,
+        "rmse": 2.32109
+      },
+      "vnext": {
+        "bias": -0.09725,
+        "count": 8452,
+        "mae": 1.004858,
+        "rmse": 1.37855
+      }
+    },
+    "30": {
+      "old": {
+        "bias": -0.379661,
+        "count": 8421,
+        "mae": 1.25191,
+        "rmse": 1.707671
+      },
+      "raw": {
+        "bias": 0.653178,
+        "count": 8421,
+        "mae": 1.814605,
+        "rmse": 2.3281
+      },
+      "vnext": {
+        "bias": -0.085515,
+        "count": 8421,
+        "mae": 1.098665,
+        "rmse": 1.495077
+      }
+    },
+    "45": {
+      "old": {
+        "bias": -0.400341,
+        "count": 8414,
+        "mae": 1.30242,
+        "rmse": 1.781984
+      },
+      "raw": {
+        "bias": 0.662195,
+        "count": 8414,
+        "mae": 1.815166,
+        "rmse": 2.327876
+      },
+      "vnext": {
+        "bias": -0.066802,
+        "count": 8414,
+        "mae": 1.150352,
+        "rmse": 1.566565
+      }
+    },
+    "60": {
+      "old": {
+        "bias": -0.32378,
+        "count": 11198,
+        "mae": 1.318559,
+        "rmse": 1.80657
+      },
+      "raw": {
+        "bias": 0.279636,
+        "count": 11198,
+        "mae": 1.823989,
+        "rmse": 2.414367
+      },
+      "vnext": {
+        "bias": -0.07493,
+        "count": 11198,
+        "mae": 1.198173,
+        "rmse": 1.634897
+      }
+    }
+  },
+  "by_spot_top_sse": [
+    {
+      "old": {
+        "bias": -0.588414,
+        "count": 6332,
+        "mae": 1.690375,
+        "rmse": 2.243728
+      },
+      "rows": 6332,
+      "spot_id": "la_tonnara",
+      "vnext": {
+        "bias": -0.264188,
+        "count": 6332,
+        "mae": 1.516504,
+        "rmse": 2.014589
+      }
+    },
+    {
+      "old": {
+        "bias": -0.664573,
+        "count": 5776,
+        "mae": 1.433185,
+        "rmse": 1.87658
+      },
+      "rows": 5776,
+      "spot_id": "santa_manza",
+      "vnext": {
+        "bias": -0.157142,
+        "count": 5776,
+        "mae": 1.214302,
+        "rmse": 1.585545
+      }
+    },
+    {
+      "old": {
+        "bias": -0.648479,
+        "count": 5940,
+        "mae": 1.236072,
+        "rmse": 1.694156
+      },
+      "rows": 5940,
+      "spot_id": "piantarella",
+      "vnext": {
+        "bias": -0.168907,
+        "count": 5940,
+        "mae": 1.012154,
+        "rmse": 1.349005
+      }
+    },
+    {
+      "old": {
+        "bias": -0.030887,
+        "count": 6484,
+        "mae": 0.872967,
+        "rmse": 1.290711
+      },
+      "rows": 6484,
+      "spot_id": "porticcio",
+      "vnext": {
+        "bias": 0.134124,
+        "count": 6484,
+        "mae": 0.828084,
+        "rmse": 1.226636
+      }
+    },
+    {
+      "old": {
+        "bias": 0.183423,
+        "count": 4568,
+        "mae": 1.116288,
+        "rmse": 1.431613
+      },
+      "rows": 4568,
+      "spot_id": "porto_polo",
+      "vnext": {
+        "bias": 0.203961,
+        "count": 4568,
+        "mae": 1.046694,
+        "rmse": 1.371177
+      }
+    },
+    {
+      "old": {
+        "bias": -0.478608,
+        "count": 4569,
+        "mae": 1.232136,
+        "rmse": 1.616172
+      },
+      "rows": 4569,
+      "spot_id": "balistra",
+      "vnext": {
+        "bias": -0.153078,
+        "count": 4569,
+        "mae": 1.041278,
+        "rmse": 1.360273
+      }
+    },
+    {
+      "old": {
+        "bias": -0.103771,
+        "count": 367,
+        "mae": 1.702716,
+        "rmse": 2.234637
+      },
+      "rows": 367,
+      "spot_id": "cap_corse",
+      "vnext": {
+        "bias": -0.335273,
+        "count": 367,
+        "mae": 1.615947,
+        "rmse": 2.14567
+      }
+    },
+    {
+      "old": {
+        "bias": -0.450481,
+        "count": 409,
+        "mae": 1.60956,
+        "rmse": 2.227451
+      },
+      "rows": 409,
+      "spot_id": "la_parata",
+      "vnext": {
+        "bias": -0.445055,
+        "count": 409,
+        "mae": 1.489797,
+        "rmse": 2.0238
+      }
+    }
+  ],
+  "by_threshold_kt": {
+    "ge_12": {
+      "old": {
+        "bias": -1.661277,
+        "count": 11044,
+        "mae": 2.039111,
+        "rmse": 2.525519
+      },
+      "raw": {
+        "bias": -0.660994,
+        "count": 11044,
+        "mae": 2.193604,
+        "rmse": 2.764142
+      },
+      "rows": 11044,
+      "vnext": {
+        "bias": -0.9002,
+        "count": 11044,
+        "mae": 1.578893,
+        "rmse": 2.025619
+      }
+    },
+    "ge_15": {
+      "old": {
+        "bias": -1.808837,
+        "count": 8994,
+        "mae": 2.166098,
+        "rmse": 2.659661
+      },
+      "raw": {
+        "bias": -0.790185,
+        "count": 8994,
+        "mae": 2.279442,
+        "rmse": 2.856844
+      },
+      "rows": 8994,
+      "vnext": {
+        "bias": -0.972797,
+        "count": 8994,
+        "mae": 1.636123,
+        "rmse": 2.095641
+      }
+    },
+    "ge_20": {
+      "old": {
+        "bias": -2.336681,
+        "count": 4912,
+        "mae": 2.589577,
+        "rmse": 3.07976
+      },
+      "raw": {
+        "bias": -1.479966,
+        "count": 4912,
+        "mae": 2.509686,
+        "rmse": 3.127562
+      },
+      "rows": 4912,
+      "vnext": {
+        "bias": -1.333666,
+        "count": 4912,
+        "mae": 1.811094,
+        "rmse": 2.299378
+      }
+    },
+    "ge_25": {
+      "old": {
+        "bias": -3.033495,
+        "count": 2401,
+        "mae": 3.10548,
+        "rmse": 3.56126
+      },
+      "raw": {
+        "bias": -2.643587,
+        "count": 2401,
+        "mae": 2.88625,
+        "rmse": 3.559371
+      },
+      "rows": 2401,
+      "vnext": {
+        "bias": -1.870303,
+        "count": 2401,
+        "mae": 2.062117,
+        "rmse": 2.556606
+      }
+    }
+  },
+  "common_rows": 36485,
+  "old_common": {
+    "bias": -0.36611,
+    "count": 36485,
+    "mae": 1.267409,
+    "rmse": 1.736694
+  },
+  "raw_common": {
+    "bias": 0.538155,
+    "count": 36485,
+    "mae": 1.816489,
+    "rmse": 2.353258
+  },
+  "top_feature_importances": [
+    {
+      "feature": "features__nwp_horizon_wind_ramp_ms",
+      "importance": 373
+    },
+    {
+      "feature": "baselines__baseline_wind_mean_ms",
+      "importance": 293
+    },
+    {
+      "feature": "features__model_error_now_wind_mean_ms",
+      "importance": 248
+    },
+    {
+      "feature": "features__nwp_error_persistence_plus_wind_ramp_ms",
+      "importance": 63
+    },
+    {
+      "feature": "baselines__baseline_shortwave_radiation",
+      "importance": 60
+    },
+    {
+      "feature": "features__obs_delta_15m_wind_mean_ms",
+      "importance": 57
+    },
+    {
+      "feature": "features__issue_hour_sin",
+      "importance": 55
+    },
+    {
+      "feature": "features__nwp_offset_n10_delta_vs_center_wind_speed_10m",
+      "importance": 54
+    },
+    {
+      "feature": "features__nwp_horizon_cape_ramp",
+      "importance": 46
+    },
+    {
+      "feature": "baselines__baseline_gust_ms",
+      "importance": 39
+    },
+    {
+      "feature": "features__open_meteo_vertical_geopotential_thickness_1000_850_m",
+      "importance": 33
+    },
+    {
+      "feature": "features__context_global_inland_1_precipitation_mm",
+      "importance": 32
+    },
+    {
+      "feature": "features__nwp_offset_s10_delta_vs_center_temperature_2m",
+      "importance": 32
+    },
+    {
+      "feature": "features__obs_lag_15m_wind_mean_ms",
+      "importance": 32
+    },
+    {
+      "feature": "features__nwp_horizon_temperature_ramp_c",
+      "importance": 30
+    },
+    {
+      "feature": "features__context_global_nearest_4_wind_u_ms",
+      "importance": 28
+    },
+    {
+      "feature": "features__model_open_meteo_meteofrance_arome_france_temperature_900hPa",
+      "importance": 28
+    },
+    {
+      "feature": "features__nwp_offset_n10_delta_vs_center_wind_gusts_10m",
+      "importance": 28
+    },
+    {
+      "feature": "features__nwp_offset_s10_delta_vs_center_cape",
+      "importance": 28
+    },
+    {
+      "feature": "features__nwp_offset_e10_delta_vs_center_wind_speed_10m",
+      "importance": 27
+    },
+    {
+      "feature": "features__nwp_offset_w10_delta_vs_center_temperature_2m",
+      "importance": 27
+    },
+    {
+      "feature": "features__nwp_offset_s10_surface_pressure",
+      "importance": 26
+    },
+    {
+      "feature": "features__nwp_horizon_shortwave_ramp",
+      "importance": 25
+    },
+    {
+      "feature": "features__nwp_offset_w10_wind_speed_10m",
+      "importance": 25
+    },
+    {
+      "feature": "features__nwp_offset_s10_delta_vs_center_wind_speed_10m",
+      "importance": 24
+    },
+    {
+      "feature": "features__previous_run_open_meteo_best_match_day1_wind_u_10m",
+      "importance": 24
+    },
+    {
+      "feature": "baselines__baseline_cape",
+      "importance": 23
+    },
+    {
+      "feature": "features__obs_delta_60m_wind_mean_ms",
+      "importance": 23
+    },
+    {
+      "feature": "baselines__baseline_wind_direction_deg",
+      "importance": 22
+    },
+    {
+      "feature": "features__nwp_offset_gradient_pressure_msl_magnitude_hpa_per_km",
+      "importance": 22
+    },
+    {
+      "feature": "features__previous_run_open_meteo_best_match_day1_wind_speed_10m",
+      "importance": 22
+    },
+    {
+      "feature": "features__nwp_horizon_gust_ramp_ms",
+      "importance": 21
+    },
+    {
+      "feature": "features__nwp_offset_e10_delta_vs_center_temperature_2m",
+      "importance": 21
+    },
+    {
+      "feature": "features__nwp_offset_n10_delta_vs_center_temperature_2m",
+      "importance": 21
+    },
+    {
+      "feature": "features__nwp_offset_n10_wind_gusts_10m",
+      "importance": 21
+    },
+    {
+      "feature": "features__nwp_offset_w10_delta_vs_center_wind_speed_10m",
+      "importance": 21
+    },
+    {
+      "feature": "features__open_meteo_vertical_relative_humidity_delta_1000_850_pct",
+      "importance": 21
+    },
+    {
+      "feature": "features__context_global_nearest_2_pressure_hpa",
+      "importance": 20
+    },
+    {
+      "feature": "features__context_global_nearest_3_delta_vs_target_wind_mean_ms",
+      "importance": 20
+    },
+    {
+      "feature": "features__context_global_nearest_4_global_radiation_raw",
+      "importance": 20
+    }
+  ],
+  "vnext_common": {
+    "bias": -0.080669,
+    "count": 36485,
+    "mae": 1.119395,
+    "rmse": 1.530516
+  }
+}

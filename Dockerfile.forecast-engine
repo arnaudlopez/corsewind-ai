@@ -9,8 +9,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl docker.io git libeccodes0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-moloch.txt ./
-RUN pip install -r requirements.txt -r requirements-moloch.txt
+COPY requirements.txt requirements-moloch.txt requirements-ml-dataset.txt ./
+RUN pip install -r requirements.txt -r requirements-moloch.txt -r requirements-ml-dataset.txt
 
 COPY . .
 

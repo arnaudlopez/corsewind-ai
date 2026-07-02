@@ -66,6 +66,12 @@ MeteoHub GRIB decoding is optional. Install the extra GRIB/NetCDF stack only on 
 pip install -r requirements-moloch.txt
 ```
 
+ML dataset collectors have their own optional dependencies:
+
+```bash
+pip install -r requirements-ml-dataset.txt
+```
+
 ## Run One Forecast Cycle
 
 Dry-run:
@@ -202,6 +208,26 @@ if a compressed file is missing or unsupported.
 See `docs/forecast_update_engine.md` for the full update process, selected forecast hours, generated artifacts, and Beacon Live handoff contract.
 
 See `docs/corsewind_ml_nowcasting_blueprint.md` for the ML nowcasting blueprint: SAPHIR-inspired methodology, observations/NWP features, windsurf-focused metrics, model candidates, and operational roadmap.
+
+See `docs/ml_nowcasting/dataset_engine_evolution_plan.md` for the plan to evolve the forecast engine into an ML dataset collector, including model-run archiving, model sampling at spots, extra AROME/AROME-PI spot features, AROME vertical-profile sampling, observation normalization, and feature-store construction. The current feature-store schema is summarized in `docs/ml_nowcasting/feature_store_schema.md`.
+
+See `docs/ml_nowcasting/external_data_sources_inventory.md` for the external source inventory: API status, access requirements, variables available, and priority for thermal-wind nowcasting.
+
+See `docs/ml_nowcasting/missing_access_api_call_structures.md` for the prepared API call structures for Copernicus Marine, EUMETSAT, CDS/ERA5, and ECMWF Open Data.
+
+See `docs/ml_nowcasting/copernicus_marine_product_inventory.md` for the Copernicus Marine datasets selected for thermal-wind nowcasting: operational SST first, then currents, mixed layer, waves, and sea-surface wind candidates for later tests.
+
+See `docs/ml_nowcasting/eumetsat_product_inventory.md` for the EUMETSAT satellite datasets selected for thermal-wind nowcasting: MTG cloud mask first, then cloud type, cloud top, land surface temperature, precipitation, and legacy MSG fallback.
+
+See `docs/ml_nowcasting/eumetsat_catalog_keyword_inventory.md` for the broader EUMETSAT catalogue keyword scan across cloud, land-heating, radiation, convection, wind, water-vapour, and sea-surface candidates.
+
+See `docs/ml_nowcasting/meteo_france_observation_api_inventory.md` for the Météo-France observation API inventory: usable endpoints, Corsica stations, available metrics, and dataset normalization choices.
+
+See `docs/ml_nowcasting/meteo_france_radar_api_inventory.md` for the Météo-France radar API inventory: packet formats, Corsica radars, 500 m precipitation mosaics, and spot-level feature strategy.
+
+Beacon Live spot and realtime-observation bootstrap imports are available through `scripts/ml_dataset/import_beacon_live_spots.py` and `scripts/ml_dataset/import_beacon_live_observations.py`. Model-layer spot sampling, Météo-France observation collection, extra AROME/AROME-PI spot-feature sampling, AROME vertical-profile sampling, feature-store construction, Copernicus Marine SST sampling, EUMETSAT cloud-mask sampling, generic EUMETSAT spot-product sampling, and source inventories are available through `scripts/ml_dataset/sample_model_layers_at_spots.py`, `scripts/ml_dataset/collect_meteo_france_observations.py`, `scripts/ml_dataset/collect_meteo_france_nwp_spot_features.py`, `scripts/ml_dataset/collect_meteo_france_vertical_profiles.py`, `scripts/ml_dataset/build_spot_feature_store.py`, `scripts/ml_dataset/collect_copernicus_marine_sst.py`, `scripts/ml_dataset/collect_eumetsat_cloud_mask.py`, `scripts/ml_dataset/collect_eumetsat_spot_product.py`, `scripts/ml_dataset/inventory_meteo_france_wcs_variables.py`, `scripts/ml_dataset/inventory_copernicus_marine_products.py`, `scripts/ml_dataset/inventory_eumetsat_products.py`, and `scripts/ml_dataset/inventory_eumetsat_catalog_keywords.py`.
+
+Current data availability can be profiled with `scripts/ml_dataset/profile_data_availability.py`; the generated Markdown report is `docs/ml_nowcasting/data_availability_profile.md`.
 
 See `docs/qes_winds_benchmark.md` for the optional QES-Winds GPU benchmark against the current WindNinja 50 m pipeline on Ajaccio and Bonifacio test zones.
 

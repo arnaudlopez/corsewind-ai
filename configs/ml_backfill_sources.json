@@ -1,0 +1,289 @@
+{
+  "format": "corsewind.ml_backfill_sources.v1",
+  "mode": "backfill_only",
+  "storage": {
+    "env_root": "ML_DATASET_ROOT",
+    "default_local_root": "data/processed/ml_dataset",
+    "validated_remote_root": "z2:/srv/data/corsewind/ml_dataset",
+    "minimum_free_gb_before_large_backfill": 250,
+    "recommended_external_disk_free_gb": 500,
+    "preflight_command": "python3 scripts/ml_dataset/remote_storage_preflight.py --host z2 --remote-path /srv/data/corsewind/ml_dataset --min-free-gb 250 --create"
+  },
+  "current_policy": {
+    "continuous_collection": "disabled_until_backfill_dataset_is_built",
+    "first_phase_goal": "Build historical observations and historical forecast features before enabling watchers.",
+    "execution_host": "z2",
+    "remote_dataset_root": "/srv/data/corsewind/ml_dataset"
+  },
+  "sources": [
+    {
+      "key": "meteo_france_dpclim_observations",
+      "priority": "P0",
+      "kind": "historical_observations",
+      "provider": "Meteo-France DPClim",
+      "status": "target_hourly_complete_context_hourly_running_station_info_complete_6min_not_wind",
+      "download_policy": "station_csv_orders_chunked_after_storage_preflight",
+      "target_root": "observations/meteo_france_climatology",
+      "cadences": [
+        "6min",
+        "hourly",
+        "daily"
+      ],
+      "core_fields": [
+        "FF",
+        "DD",
+        "FXI",
+        "FXY",
+        "T",
+        "TD",
+        "U",
+        "PSTAT",
+        "PMER",
+        "GLO",
+        "DIR",
+        "DIF",
+        "INS"
+      ],
+      "notes": "Long historical station truth labels and climatology features; not historical forecasts. Hourly backfill for the seven Meteo-France target spot stations completed on z2 with 151872 rows and no errors. A 40-station Corse context registry with GPS, altitude, nearest spot and context role is stored in configs/ml_context_stations.json. Station metadata backfill completed for all 40 stations. Hourly backfill for the 33 additional context stations is running on z2. Infrahoraire 6m returns RR6 precipitation, not wind, so it is not used as a wind target."
+    },
+    {
+      "key": "open_meteo_historical_forecast",
+      "priority": "P0",
+      "kind": "historical_forecast_timeseries",
+      "provider": "Open-Meteo",
+      "status": "full_backfill_complete_repair_pass_running_pressure_level_smoke_tested",
+      "download_policy": "point_api_by_spot_and_context_grid",
+      "target_root": "open_meteo/historical_forecast",
+      "cadences": [
+        "hourly"
+      ],
+      "primary_models": [
+        "meteofrance_arome_france"
+      ],
+      "secondary_models": [
+        "meteofrance_arome_france_hd"
+      ],
+      "core_fields": [
+        "wind_speed_10m",
+        "wind_direction_10m",
+        "wind_gusts_10m",
+        "temperature_2m",
+        "relative_humidity_2m",
+        "pressure_msl",
+        "cloud_cover",
+        "shortwave_radiation",
+        "cape",
+        "boundary_layer_height"
+      ],
+      "pressure_level_extension_fields": [
+        "temperature_1000hPa",
+        "temperature_950hPa",
+        "temperature_925hPa",
+        "temperature_900hPa",
+        "temperature_850hPa",
+        "relative_humidity_1000hPa",
+        "relative_humidity_950hPa",
+        "relative_humidity_925hPa",
+        "relative_humidity_900hPa",
+        "relative_humidity_850hPa",
+        "geopotential_height_1000hPa",
+        "geopotential_height_950hPa",
+        "geopotential_height_925hPa",
+        "geopotential_height_900hPa",
+        "geopotential_height_850hPa",
+        "wind_speed_1000hPa",
+        "wind_speed_950hPa",
+        "wind_speed_925hPa",
+        "wind_speed_900hPa",
+        "wind_speed_850hPa",
+        "wind_direction_1000hPa",
+        "wind_direction_950hPa",
+        "wind_direction_925hPa",
+        "wind_direction_900hPa",
+        "wind_direction_850hPa"
+      ],
+      "notes": "Best recent multi-year forecast backfill by spot; continuous historical forecast, not always full native model run structure. Smoke test shows meteofrance_arome_france has better pressure/radiation/cloud coverage than HD; HD remains useful for longer wind-focused history. Full spot plus context backfill from 2024-01-02 to 2026-06-23 completed with intermittent API timeouts; repair pass with seven-day chunks is running on z2. Pressure-level smoke test on z2 for Balistra 2025-06-15 returned 24/24 non-null hourly rows for temperature, relative humidity, geopotential height, wind speed and wind direction at 1000/950/925/900/850 hPa. The residual table derives lapse-rate, inversion, humidity, thickness and shear features from these fields."
+    },
+    {
+      "key": "open_meteo_previous_runs",
+      "priority": "P1",
+      "kind": "historical_forecast_by_fixed_horizon",
+      "provider": "Open-Meteo",
+      "status": "collector_implemented_smoke_tested_not_yet_full_backfilled",
+      "download_policy": "point_api_by_spot_for_selected_horizons",
+      "target_root": "open_meteo/previous_runs",
+      "cadences": [
+        "hourly"
+      ],
+      "core_fields": [
+        "wind_speed_10m",
+        "wind_direction_10m",
+        "wind_gusts_10m",
+        "temperature_2m",
+        "pressure_msl"
+      ],
+      "notes": "Useful for learning error by forecast horizon when true single-run archives are unavailable. API smoke test was successful with best_match for day-1/day-2; Météo-France AROME previous_day variables returned nulls on the tested sample, so this source should be used as global/seamless context unless later tests prove AROME coverage."
+    },
+    {
+      "key": "windsup_spot_observations",
+      "priority": "P0",
+      "kind": "true_spot_wind_observations",
+      "provider": "WindsUp public spot pages",
+      "status": "collector_implemented_smoke_tested_public_recent_archive",
+      "download_policy": "polite_html_scrape_by_spot_and_local_day",
+      "target_root": "observations/windsup/normalized",
+      "cadences": [
+        "about_1min_observations_public_recent_history"
+      ],
+      "core_fields": [
+        "wind_mean_ms",
+        "gust_ms",
+        "wind_direction_deg",
+        "wind_mean_kt_raw",
+        "gust_kt_raw"
+      ],
+      "notes": "Beacon Live parser logic was ported to a normalized Python collector. Public WindsUp pages expose day-level history via /spot/{id}/?date=YYYY-MM-DD. Availability is spot/date dependent: one 2024 Porticcio probe returned no rows, but other 2024 spot periods may exist and should be discovered/backfilled per station."
+    },
+    {
+      "key": "meteo_france_arome_vertical_profiles",
+      "priority": "P0",
+      "kind": "native_forecast_vertical_profile",
+      "provider": "Meteo-France AROME WCS",
+      "status": "collector_implemented_recent_controlled_backfill_running_historical_depth_unproven",
+      "download_policy": "wcs_geotiff_by_run_valid_time_feature_pressure_level_then_sample_at_spots",
+      "target_root": "meteo_france_nwp/vertical_profiles",
+      "cadences": [
+        "run_steps"
+      ],
+      "core_fields": [
+        "temperature_c_by_pressure_hpa",
+        "relative_humidity_pct_by_pressure_hpa",
+        "vertical_velocity_pressure_pa_s_by_pressure_hpa",
+        "geopotential_height_m_by_pressure_hpa",
+        "pseudo_adiabatic_potential_temperature_c_by_pressure_hpa",
+        "geopotential_thickness_1000_850_m",
+        "temperature_lapse_rate_1000_850_c_per_km",
+        "relative_humidity_mean_1000_850_pct",
+        "vertical_velocity_pressure_850_pa_s"
+      ],
+      "notes": "Validated on z2 for AROME 0.025 run 2026-06-24T09Z, five lead times and pressure levels 1000/950/925/900/850 hPa. First tested at Balistra, then expanded to 20 ML spots with 100 profile rows. This is the best native source for vertical air-column features, but current local inventory only proves recent coverage from 2026-06-24 to 2026-06-26. Until deeper Météo-France archive access is proven, Open-Meteo historical forecast pressure-level fields are the practical historical vertical-profile backfill for the 2024-2026 training window."
+    },
+    {
+      "key": "copernicus_marine_sst",
+      "priority": "P0",
+      "kind": "satellite_ocean_observation",
+      "provider": "Copernicus Marine",
+      "status": "collector_implemented_smoke_tested_not_yet_backfilled",
+      "download_policy": "subset_netcdf_by_time_bbox_then_sample_at_spots",
+      "target_root": "copernicus_marine/sst_samples",
+      "cadences": [
+        "hourly"
+      ],
+      "core_fields": [
+        "analysed_sst",
+        "sst_c",
+        "sample_distance_km"
+      ],
+      "notes": "Validated on z2 with dataset cmems_obs-sst_med_phy-sst_nrt_diurnal-oi-0.0625deg_PT1H-m for 2026-06-22T12:00Z to 15:00Z. First tested at Balistra, then expanded to 20 ML spots with 80 valid SST rows. The 2026-06-22 10Z-18Z controlled backfill wrote 180 valid SST rows for 20 spots and cleaned the raw NetCDF file. The working account is the earlier Copernicus account; the later credential pair was rejected by Copernicus Marine."
+    },
+    {
+      "key": "eumetsat_mtg_cloud_type",
+      "priority": "P0",
+      "kind": "satellite_atmosphere_observation",
+      "provider": "EUMETSAT Data Store",
+      "status": "collector_implemented_pilot_backfill_ok_recent_archive_only",
+      "download_policy": "eumdac_search_download_netcdf_by_time_bbox_then_sample_at_spots",
+      "target_root": "eumetsat/cloud_type_samples",
+      "cadences": [
+        "10min_products"
+      ],
+      "core_fields": [
+        "cloud_type",
+        "cloud_phase",
+        "quality_overall_processing",
+        "quality_illumination",
+        "quality_nwp_parameters"
+      ],
+      "notes": "Validated on z2 for EO:EUM:DAT:0680 on 2026-06-24 around 12:00Z. First tested at Balistra, then expanded to 20 ML spots. Monthly availability probe found products from 2026-01 onward, and zero products through 2025. A 2026-06-23 10Z-12Z pilot wrote 280 rows for 20 spots with raw NetCDF cleanup enabled. A controlled 2026-06-22 10Z-18Z backfill wrote 1000 rows."
+    },
+    {
+      "key": "eumetsat_land_surface_temperature",
+      "priority": "P0",
+      "kind": "satellite_land_observation",
+      "provider": "EUMETSAT Data Store / LSA SAF",
+      "status": "collector_implemented_pilot_backfill_ok_recent_archive_only",
+      "download_policy": "eumdac_search_download_netcdf_by_time_bbox_then_sample_at_spots",
+      "target_root": "eumetsat/land_surface_temperature_samples",
+      "cadences": [
+        "product_times"
+      ],
+      "core_fields": [
+        "LST",
+        "LST_uncertainty",
+        "QFLAGS"
+      ],
+      "notes": "Validated on z2 for EO:EUM:DAT:1088 on 2026-06-24 around 11:50Z. First tested at Balistra, then expanded to 20 ML spots. Monthly availability probe found products from 2026-02 onward. A 2026-06-23 10Z-12Z pilot wrote 240 rows for 20 spots with raw NetCDF cleanup enabled. A controlled 2026-06-22 10Z-18Z backfill wrote 960 rows. This is the key observed land-heating feature for land-sea thermal contrast when paired with Copernicus SST."
+    },
+    {
+      "key": "eumetsat_global_instability_indices",
+      "priority": "P0",
+      "kind": "satellite_atmosphere_observation",
+      "provider": "EUMETSAT Data Store",
+      "status": "collector_implemented_pilot_backfill_ok",
+      "download_policy": "eumdac_search_download_netcdf_by_time_bbox_then_sample_at_spots",
+      "target_root": "eumetsat/global_instability_indices_samples",
+      "cadences": [
+        "10min_products"
+      ],
+      "core_fields": [
+        "k_index",
+        "lifted_index",
+        "prec_water_low",
+        "prec_water_mid",
+        "prec_water_high",
+        "prec_water_total",
+        "percent_cloud_free"
+      ],
+      "notes": "Validated on z2 for EO:EUM:DAT:0683 on 2026-06-24 around 12:00Z. First tested at Balistra, then expanded to 20 ML spots. Monthly availability probe found products from 2025-02 onward. A 2026-06-23 10Z-12Z pilot wrote 280 rows for 20 spots with raw NetCDF cleanup enabled. A controlled 2026-06-22 10Z-18Z backfill wrote 1000 rows. Useful as observed instability and water-vapour context for thermal/convection regimes."
+    },
+    {
+      "key": "meteonet",
+      "priority": "P1",
+      "kind": "research_dataset",
+      "provider": "Meteo-France MeteoNet",
+      "status": "se_ground_stations_normalized_ready_for_pretraining",
+      "download_policy": "manual_or_scripted_dataset_download_after_storage_preflight",
+      "target_root": "research/meteonet",
+      "cadences": [
+        "6min_observations",
+        "daily_model_files"
+      ],
+      "core_fields": [
+        "ground_observations_dd_ff",
+        "ground_observations_t_td_hu_psl",
+        "arome_2d",
+        "arpege_2d",
+        "weather_models_3d"
+      ],
+      "notes": "Research/pretraining source, 2016-2018, zones NW and SE. z2 inventory completed for SE: ground_stations 3 files/about 2.14 GiB with true 6-minute wind observations; weather_models 2D about 21.06 GiB; weather_models 3D about 7.33 GiB. SE/ground_stations archives for 2016, 2017 and 2018 are downloaded complete and normalized on z2. Normalized Corsica bbox output has 9,934,994 rows, 51 unique stations, 2016-01-01T00:00:00Z to 2018-12-31T23:54:00Z, with 6,413,904 non-null wind-speed rows across the three years."
+    },
+    {
+      "key": "meteo_france_pnt_14d",
+      "priority": "P2",
+      "kind": "recent_native_forecast_archive",
+      "provider": "Meteo-France open data",
+      "status": "to_implement_after_storage_preflight",
+      "download_policy": "grib_packages_recent_14_days_only",
+      "target_root": "meteo_france_pnt_14d",
+      "cadences": [
+        "hourly"
+      ],
+      "core_fields": [
+        "AROME",
+        "AROME-PI",
+        "ARPEGE"
+      ],
+      "notes": "Native recent GRIB backfill, useful to bridge current operational model behavior."
+    }
+  ]
+}

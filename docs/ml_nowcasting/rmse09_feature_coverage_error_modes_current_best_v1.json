@@ -1,0 +1,295 @@
+{
+  "sets": {
+    "actual_8plus": {
+      "features__context_agg_all_pressure_hpa_count": {
+        "median": 2.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_all_temperature_c_count": {
+        "median": 4.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_inland_wind_mean_ms_count": {
+        "median": 1.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_global_coastal_1_available": {
+        "present": true,
+        "true_rate": 0.987067
+      },
+      "features__context_global_inland_1_available": {
+        "present": true,
+        "true_rate": 0.984024
+      },
+      "features__context_global_relief_1_available": {
+        "present": true,
+        "true_rate": 0.135413
+      },
+      "features__eumetsat_land_surface_temperature_available": {
+        "present": true,
+        "true_rate": 0.0
+      },
+      "features__eumetsat_land_surface_temperature_sample_distance_km": {
+        "median": null,
+        "nonnull_rate": 0.0,
+        "present": true
+      },
+      "features__obs_lag_15m_age_minutes": {
+        "median": 1.433,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__obs_lag_15m_available": {
+        "present": true,
+        "true_rate": 0.99962
+      },
+      "features__sst_age_minutes": {
+        "median": 30.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__sst_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "rmse": 1.746566,
+      "rows": 5258
+    },
+    "all": {
+      "features__context_agg_all_pressure_hpa_count": {
+        "median": 2.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_all_temperature_c_count": {
+        "median": 4.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_inland_wind_mean_ms_count": {
+        "median": 1.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_global_coastal_1_available": {
+        "present": true,
+        "true_rate": 0.986796
+      },
+      "features__context_global_inland_1_available": {
+        "present": true,
+        "true_rate": 0.988609
+      },
+      "features__context_global_relief_1_available": {
+        "present": true,
+        "true_rate": 0.400045
+      },
+      "features__eumetsat_land_surface_temperature_available": {
+        "present": true,
+        "true_rate": 0.005536
+      },
+      "features__eumetsat_land_surface_temperature_sample_distance_km": {
+        "median": 1.102,
+        "nonnull_rate": 0.005536,
+        "present": true
+      },
+      "features__obs_lag_15m_age_minutes": {
+        "median": 1.067,
+        "nonnull_rate": 0.999968,
+        "present": true
+      },
+      "features__obs_lag_15m_available": {
+        "present": true,
+        "true_rate": 0.999045
+      },
+      "features__sst_age_minutes": {
+        "median": 45.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__sst_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "rmse": 1.269403,
+      "rows": 31429
+    },
+    "critical_spots_tonnara_santamanza_balistra": {
+      "features__context_agg_all_pressure_hpa_count": {
+        "median": 2.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_all_temperature_c_count": {
+        "median": 4.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_inland_wind_mean_ms_count": {
+        "median": 1.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_global_coastal_1_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "features__context_global_inland_1_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "features__context_global_relief_1_available": {
+        "present": true,
+        "true_rate": 0.0
+      },
+      "features__eumetsat_land_surface_temperature_available": {
+        "present": true,
+        "true_rate": 0.006042
+      },
+      "features__eumetsat_land_surface_temperature_sample_distance_km": {
+        "median": 1.102,
+        "nonnull_rate": 0.006042,
+        "present": true
+      },
+      "features__obs_lag_15m_age_minutes": {
+        "median": 1.267,
+        "nonnull_rate": 0.999924,
+        "present": true
+      },
+      "features__obs_lag_15m_available": {
+        "present": true,
+        "true_rate": 0.99932
+      },
+      "features__sst_age_minutes": {
+        "median": 45.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__sst_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "rmse": 1.415224,
+      "rows": 13241
+    },
+    "top10_abs_error": {
+      "features__context_agg_all_pressure_hpa_count": {
+        "median": 2.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_all_temperature_c_count": {
+        "median": 4.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_inland_wind_mean_ms_count": {
+        "median": 1.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_global_coastal_1_available": {
+        "present": true,
+        "true_rate": 0.979637
+      },
+      "features__context_global_inland_1_available": {
+        "present": true,
+        "true_rate": 0.985682
+      },
+      "features__context_global_relief_1_available": {
+        "present": true,
+        "true_rate": 0.299395
+      },
+      "features__eumetsat_land_surface_temperature_available": {
+        "present": true,
+        "true_rate": 0.002864
+      },
+      "features__eumetsat_land_surface_temperature_sample_distance_km": {
+        "median": 1.102,
+        "nonnull_rate": 0.002864,
+        "present": true
+      },
+      "features__obs_lag_15m_age_minutes": {
+        "median": 1.283,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__obs_lag_15m_available": {
+        "present": true,
+        "true_rate": 0.998091
+      },
+      "features__sst_age_minutes": {
+        "median": 45.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__sst_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "rmse": 3.021708,
+      "rows": 3143
+    },
+    "top5_abs_error": {
+      "features__context_agg_all_pressure_hpa_count": {
+        "median": 2.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_all_temperature_c_count": {
+        "median": 4.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_agg_inland_wind_mean_ms_count": {
+        "median": 1.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__context_global_coastal_1_available": {
+        "present": true,
+        "true_rate": 0.974555
+      },
+      "features__context_global_inland_1_available": {
+        "present": true,
+        "true_rate": 0.991094
+      },
+      "features__context_global_relief_1_available": {
+        "present": true,
+        "true_rate": 0.295802
+      },
+      "features__eumetsat_land_surface_temperature_available": {
+        "present": true,
+        "true_rate": 0.003181
+      },
+      "features__eumetsat_land_surface_temperature_sample_distance_km": {
+        "median": 1.102,
+        "nonnull_rate": 0.003181,
+        "present": true
+      },
+      "features__obs_lag_15m_age_minutes": {
+        "median": 1.35,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__obs_lag_15m_available": {
+        "present": true,
+        "true_rate": 0.997455
+      },
+      "features__sst_age_minutes": {
+        "median": 45.0,
+        "nonnull_rate": 1.0,
+        "present": true
+      },
+      "features__sst_available": {
+        "present": true,
+        "true_rate": 1.0
+      },
+      "rmse": 3.635858,
+      "rows": 1572
+    }
+  },
+  "source_predictions": "/srv/data/corsewind/ml_dataset/benchmarks/prediction_residual_calibrator_2025h2_to_2026_extratrees_autoscale_v1/calibrated_predictions_2026.parquet"
+}

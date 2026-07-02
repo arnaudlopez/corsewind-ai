@@ -256,6 +256,175 @@ Le status expose `publication_schedule` par source avec :
 - `fast_window_start_utc` / `fast_window_end_utc` ;
 - `publication_status`: `on_time`, `waiting_for_expected_run` ou `delayed`.
 
+## Collecte ML EUMETSAT Cloud Mask
+
+Le moteur peut aussi collecter les produits satellite EUMETSAT MTG Cloud Mask
+pour le dataset ML. Cette collecte est optionnelle et separee du rendu Wind2D.
+Elle est activee par flag ou variable d'environnement :
+
+```bash
+export EUMETSAT_CONSUMER_KEY=...
+export EUMETSAT_CONSUMER_SECRET=...
+export ML_EUMETSAT_CLOUD_MASK_ENABLED=true
+
+python3 scripts/run_forecast_update_engine.py \
+  --enable-ml-eumetsat-cloud-mask \
+  --ml-eumetsat-cloud-mask-poll-interval-sec 480 \
+  --ml-eumetsat-cloud-mask-window-minutes 120
+```
+
+Par defaut, le moteur :
+
+- relance la collecte Cloud Mask toutes les 8 minutes ;
+- recherche les produits sur une fenetre glissante de 2 h ;
+- limite la recherche a 18 produits ;
+- echantillonne les 25 spots, y compris les spots de contexte ;
+- ecrit les NetCDF bruts sous
+  `data/processed/ml_dataset/eumetsat/raw/cloud_mask` ;
+- ecrit les samples JSONL sous
+  `data/processed/ml_dataset/eumetsat/cloud_mask_samples`.
+
+L'etat de cadence est conserve dans `external_data.eumetsat_cloud_mask` dans
+`forecast_update_engine_state.json`. Le statut du dernier cycle expose
+`eumetsat_cloud_mask` avec la fenetre collectee, le nombre de produits, le
+nombre de spots et le nombre de lignes ecrites.
+
+## Collecte ML EUMETSAT Thermique / Convection
+
+Le moteur peut aussi collecter les trois produits EUMETSAT ajoutes apres Cloud
+Mask :
+
+- Cloud Type `EO:EUM:DAT:0680` ;
+- Land Surface Temperature `EO:EUM:DAT:1088` ;
+- Global Instability Indices `EO:EUM:DAT:0683`.
+
+Activation du trio :
+
+```bash
+export EUMETSAT_CONSUMER_KEY=...
+export EUMETSAT_CONSUMER_SECRET=...
+export ML_EUMETSAT_THERMAL_PRODUCTS_ENABLED=true
+
+python3 scripts/run_forecast_update_engine.py \
+  --enable-ml-eumetsat-thermal-products \
+  --ml-eumetsat-thermal-poll-interval-sec 900 \
+  --ml-eumetsat-thermal-window-minutes 180
+```
+
+Par defaut, ces produits sont collectes toutes les 15 minutes sur une fenetre
+glissante de 3 h. Ils utilisent le collecteur generique
+`scripts/ml_dataset/collect_eumetsat_spot_product.py`, qui echantillonne les
+variables NetCDF 2D disponibles aux coordonnees des spots.
+
+Les sorties sont separees :
+
+```text
+data/processed/ml_dataset/eumetsat/cloud_type_samples
+data/processed/ml_dataset/eumetsat/land_surface_temperature_samples
+data/processed/ml_dataset/eumetsat/global_instability_indices_samples
+```
+
+Chaque source a son propre etat dans `external_data` :
+
+```text
+eumetsat_cloud_type
+eumetsat_land_surface_temperature
+eumetsat_global_instability_indices
+```
+
+## Collecte ML AROME / AROME-PI Champs Extra
+
+Les fichiers Wind2D AROME et AROME-PI restent centres sur le vent pour
+l'affichage. Pour le dataset ML, le moteur peut maintenant lancer une collecte
+separee qui relit le dernier run publie, telecharge les champs WCS utiles et les
+echantillonne directement aux spots.
+
+Activation :
+
+```bash
+ML_NWP_EXTRA_FIELDS_ENABLED=true
+
+python3 scripts/run_forecast_update_engine.py \
+  --enable-ml-nwp-extra-fields \
+  --ml-nwp-extra-fields-max-steps 24
+```
+
+Sortie :
+
+```text
+data/processed/ml_dataset/meteo_france_nwp/extra_field_samples
+data/processed/ml_dataset/meteo_france_nwp/raw/extra_fields
+```
+
+Champs AROME collectes quand disponibles :
+
+- temperature 2 m ;
+- point de rosee 2 m ;
+- humidite relative 2 m ;
+- pression mer et pression surface ;
+- nebulosite basse et totale ;
+- hauteur de couche limite ;
+- CAPE ;
+- rayonnement court descendant converti en W/m2.
+
+Champs AROME-PI collectes quand disponibles :
+
+- temperature 2 m ;
+- point de rosee 10 m ;
+- humidite relative 10 m ;
+- pression mer ;
+- nebulosite ;
+- rayonnement court descendant, direct et ciel clair converti en W/m2.
+
+La collecte est idempotente par `source + run_time_utc + valid_time_utc +
+spot_id`. Certaines variables ne sont pas exposees a toutes les echeances :
+par exemple des champs nuage/rayonnement AROME peuvent commencer a `H+1` et
+etre absents a `H+0`.
+
+## Collecte ML AROME Profils Verticaux
+
+Pour capter la structure de la colonne d'air au-dessus des spots, le moteur peut
+collecter un profil vertical AROME 0.025 deg sur niveaux isobares. Cette source
+est separee des champs surface car elle multiplie vite les appels API :
+
+```text
+nombre_requetes = echeances * variables * niveaux_pression
+```
+
+Activation conservative :
+
+```bash
+ML_NWP_VERTICAL_PROFILES_ENABLED=true
+ML_NWP_VERTICAL_PROFILES_PRESSURE_LEVELS_HPA=1000,925,850
+
+python3 scripts/run_forecast_update_engine.py \
+  --enable-ml-nwp-vertical-profiles \
+  --ml-nwp-vertical-profiles-max-steps 5
+```
+
+Sortie :
+
+```text
+data/processed/ml_dataset/meteo_france_nwp/vertical_profiles
+data/processed/ml_dataset/meteo_france_nwp/raw/vertical_profiles
+```
+
+Variables verticales collectees quand disponibles :
+
+- temperature sur surface isobare ;
+- humidite relative sur surface isobare ;
+- vitesse verticale en coordonnee pression ;
+- geopotentiel converti en hauteur ;
+- temperature pseudo-adiabatique potentielle.
+
+Le collecteur derive aussi des indicateurs bas niveau utiles au thermique :
+
+- epaisseur geopotentielle `1000-850 hPa` ;
+- lapse rate `1000-850 hPa` ;
+- humidite moyenne basse couche ;
+- vitesse verticale a `850 hPa` ;
+- force d'inversion basse couche.
+
 Pour forcer une liste d'echeances WindNinja :
 
 ```bash

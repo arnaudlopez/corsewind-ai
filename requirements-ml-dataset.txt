@@ -1,0 +1,11 @@
+copernicusmarine>=2.2
+eumdac>=3.0
+xarray>=2025.1
+netCDF4>=1.7
+pyproj>=3.7
+rasterio>=1.4
+requests>=2.32
+scikit-learn>=1.7
+lightgbm>=4.5
+joblib>=1.5
+pyarrow>=16
