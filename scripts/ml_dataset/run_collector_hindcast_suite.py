@@ -326,6 +326,129 @@ def build_local_fallback_guard_score_command(
     return cmd
 
 
+def build_probability_event_guard_command(*, args: argparse.Namespace, case_root: Path) -> list[str]:
+    return [
+        args.python,
+        "scripts/ml_dataset/apply_probability_event_guard_v1.py",
+        "--input-parquet",
+        str(case_root / "predictions" / "predictions_with_local_fallback_guard_v1.parquet"),
+        "--output-parquet",
+        str(case_root / "predictions" / "predictions_with_probability_event_guard_v1.parquet"),
+        "--output-json",
+        str(case_root / "predictions" / "probability_event_guard_v1_summary.json"),
+    ]
+
+
+def build_probability_event_guard_score_command(
+    *,
+    args: argparse.Namespace,
+    case: dict[str, str],
+    case_root: Path,
+    observation_paths: list[Path],
+) -> list[str]:
+    cmd = [
+        args.python,
+        "scripts/ml_dataset/score_live_hindcast_predictions.py",
+        "--predictions-parquet",
+        str(case_root / "predictions" / "predictions_with_probability_event_guard_v1.parquet"),
+        "--output-json",
+        str(case_root / "hindcast_score_with_probability_event_guard_v1.json"),
+        "--output-scored-parquet",
+        str(case_root / "hindcast_scored_rows_with_probability_event_guard_v1.parquet"),
+        "--spots",
+        args.score_spots,
+        "--target-start-utc",
+        iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
+        "--target-end-utc",
+        case["target_end_utc"],
+    ]
+    for path in observation_paths:
+        cmd.extend(["--observations-jsonl", str(path)])
+    return cmd
+
+
+def build_gust_recall_floor_guard_command(*, args: argparse.Namespace, case_root: Path) -> list[str]:
+    return [
+        args.python,
+        "scripts/ml_dataset/apply_gust_recall_floor_guard_v1.py",
+        "--input-parquet",
+        str(case_root / "predictions" / "predictions_with_probability_event_guard_v1.parquet"),
+        "--output-parquet",
+        str(case_root / "predictions" / "predictions_with_gust_recall_floor_guard_v1.parquet"),
+        "--output-json",
+        str(case_root / "predictions" / "gust_recall_floor_guard_v1_summary.json"),
+    ]
+
+
+def build_gust_recall_floor_guard_score_command(
+    *,
+    args: argparse.Namespace,
+    case: dict[str, str],
+    case_root: Path,
+    observation_paths: list[Path],
+) -> list[str]:
+    cmd = [
+        args.python,
+        "scripts/ml_dataset/score_live_hindcast_predictions.py",
+        "--predictions-parquet",
+        str(case_root / "predictions" / "predictions_with_gust_recall_floor_guard_v1.parquet"),
+        "--output-json",
+        str(case_root / "hindcast_score_with_gust_recall_floor_guard_v1.json"),
+        "--output-scored-parquet",
+        str(case_root / "hindcast_scored_rows_with_gust_recall_floor_guard_v1.parquet"),
+        "--spots",
+        args.score_spots,
+        "--target-start-utc",
+        iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
+        "--target-end-utc",
+        case["target_end_utc"],
+    ]
+    for path in observation_paths:
+        cmd.extend(["--observations-jsonl", str(path)])
+    return cmd
+
+
+def build_wind_gust_floor_guard_command(*, args: argparse.Namespace, case_root: Path) -> list[str]:
+    return [
+        args.python,
+        "scripts/ml_dataset/apply_wind_gust_floor_guard_v1.py",
+        "--input-parquet",
+        str(case_root / "predictions" / "predictions_with_gust_recall_floor_guard_v1.parquet"),
+        "--output-parquet",
+        str(case_root / "predictions" / "predictions_with_wind_gust_floor_guard_v1.parquet"),
+        "--output-json",
+        str(case_root / "predictions" / "wind_gust_floor_guard_v1_summary.json"),
+    ]
+
+
+def build_wind_gust_floor_guard_score_command(
+    *,
+    args: argparse.Namespace,
+    case: dict[str, str],
+    case_root: Path,
+    observation_paths: list[Path],
+) -> list[str]:
+    cmd = [
+        args.python,
+        "scripts/ml_dataset/score_live_hindcast_predictions.py",
+        "--predictions-parquet",
+        str(case_root / "predictions" / "predictions_with_wind_gust_floor_guard_v1.parquet"),
+        "--output-json",
+        str(case_root / "hindcast_score_with_wind_gust_floor_guard_v1.json"),
+        "--output-scored-parquet",
+        str(case_root / "hindcast_scored_rows_with_wind_gust_floor_guard_v1.parquet"),
+        "--spots",
+        args.score_spots,
+        "--target-start-utc",
+        iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
+        "--target-end-utc",
+        case["target_end_utc"],
+    ]
+    for path in observation_paths:
+        cmd.extend(["--observations-jsonl", str(path)])
+    return cmd
+
+
 def metric_ms(score: dict[str, Any], metric_name: str) -> dict[str, Any]:
     metric = (score.get("overall") or {}).get(metric_name) or {}
     if not metric or not metric.get("n"):
@@ -484,6 +607,44 @@ def case_summary(case: dict[str, str], case_root: Path) -> dict[str, Any]:
         for level in (20, 25):
             shadow["thresholds"][f"gust_{level}kt_local_fallback_guard"] = threshold_item(
                 local_fallback_score, f"gust_{level}kt_local_fallback_guard_v1"
+            )
+    probability_event_score_path = case_root / "hindcast_score_with_probability_event_guard_v1.json"
+    if probability_event_score_path.exists():
+        probability_event_score = read_json(probability_event_score_path)
+        shadow = out.setdefault("shadow_router_v1", {"score_json": str(probability_event_score_path)})
+        shadow["score_json"] = str(probability_event_score_path)
+        shadow.setdefault("overall_ms", {})
+        shadow["overall_ms"]["gust_probability_event_guard"] = metric_ms(
+            probability_event_score, "gust_probability_event_guard_v1_kt"
+        )
+        shadow.setdefault("thresholds", {})
+        for level in (20, 25):
+            shadow["thresholds"][f"gust_{level}kt_probability_event_guard"] = threshold_item(
+                probability_event_score, f"gust_{level}kt_probability_event_guard_v1"
+            )
+    recall_floor_score_path = case_root / "hindcast_score_with_gust_recall_floor_guard_v1.json"
+    if recall_floor_score_path.exists():
+        recall_floor_score = read_json(recall_floor_score_path)
+        shadow = out.setdefault("shadow_router_v1", {"score_json": str(recall_floor_score_path)})
+        shadow["score_json"] = str(recall_floor_score_path)
+        shadow.setdefault("overall_ms", {})
+        shadow["overall_ms"]["gust_recall_floor_guard"] = metric_ms(recall_floor_score, "gust_recall_floor_guard_v1_kt")
+        shadow.setdefault("thresholds", {})
+        for level in (12, 15, 20, 25):
+            shadow["thresholds"][f"gust_{level}kt_recall_floor_guard"] = threshold_item(
+                recall_floor_score, f"gust_{level}kt_gust_recall_floor_guard_v1"
+            )
+    wind_gust_floor_score_path = case_root / "hindcast_score_with_wind_gust_floor_guard_v1.json"
+    if wind_gust_floor_score_path.exists():
+        wind_gust_floor_score = read_json(wind_gust_floor_score_path)
+        shadow = out.setdefault("shadow_router_v1", {"score_json": str(wind_gust_floor_score_path)})
+        shadow["score_json"] = str(wind_gust_floor_score_path)
+        shadow.setdefault("overall_ms", {})
+        shadow["overall_ms"]["wind_gust_floor_guard"] = metric_ms(wind_gust_floor_score, "wind_gust_floor_guard_v1_kt")
+        shadow.setdefault("thresholds", {})
+        for level in (12, 15, 20, 25):
+            shadow["thresholds"][f"wind_{level}kt_gust_floor_guard"] = threshold_item(
+                wind_gust_floor_score, f"wind_{level}kt_wind_gust_floor_guard_v1"
             )
     return out
 
@@ -696,12 +857,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             shadow_score_path = case_root / "hindcast_score_with_shadow_router_v1.json"
             threshold_score_path = case_root / "hindcast_score_with_threshold_guard_v1.json"
             local_fallback_score_path = case_root / "hindcast_score_with_local_fallback_guard_v1.json"
+            probability_event_score_path = case_root / "hindcast_score_with_probability_event_guard_v1.json"
+            recall_floor_score_path = case_root / "hindcast_score_with_gust_recall_floor_guard_v1.json"
+            wind_gust_floor_score_path = case_root / "hindcast_score_with_wind_gust_floor_guard_v1.json"
             risk_audit = local_fallback_risk_audit(args)
             if not (
                 args.reuse_existing
                 and shadow_score_path.exists()
                 and threshold_score_path.exists()
                 and (risk_audit is None or local_fallback_score_path.exists())
+                and (risk_audit is None or probability_event_score_path.exists())
+                and (risk_audit is None or recall_floor_score_path.exists())
+                and (risk_audit is None or wind_gust_floor_score_path.exists())
             ):
                 try:
                     if not (args.reuse_existing and shadow_score_path.exists()):
@@ -744,9 +911,75 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                             cwd=repo_root,
                             dry_run=args.dry_run,
                         )
+                    if risk_audit is not None and not (args.reuse_existing and probability_event_score_path.exists()):
+                        if not (case_root / "predictions" / "predictions_with_local_fallback_guard_v1.parquet").exists():
+                            run_command(
+                                build_local_fallback_guard_command(args=args, case_root=case_root, risk_audit=risk_audit),
+                                cwd=repo_root,
+                                dry_run=args.dry_run,
+                            )
+                        run_command(
+                            build_probability_event_guard_command(args=args, case_root=case_root),
+                            cwd=repo_root,
+                            dry_run=args.dry_run,
+                        )
+                        run_command(
+                            build_probability_event_guard_score_command(
+                                args=args,
+                                case=case,
+                                case_root=case_root,
+                                observation_paths=observation_paths,
+                            ),
+                            cwd=repo_root,
+                            dry_run=args.dry_run,
+                        )
+                    if risk_audit is not None and not (args.reuse_existing and recall_floor_score_path.exists()):
+                        if not (case_root / "predictions" / "predictions_with_probability_event_guard_v1.parquet").exists():
+                            run_command(
+                                build_probability_event_guard_command(args=args, case_root=case_root),
+                                cwd=repo_root,
+                                dry_run=args.dry_run,
+                            )
+                        run_command(
+                            build_gust_recall_floor_guard_command(args=args, case_root=case_root),
+                            cwd=repo_root,
+                            dry_run=args.dry_run,
+                        )
+                        run_command(
+                            build_gust_recall_floor_guard_score_command(
+                                args=args,
+                                case=case,
+                                case_root=case_root,
+                                observation_paths=observation_paths,
+                            ),
+                            cwd=repo_root,
+                            dry_run=args.dry_run,
+                        )
+                    if risk_audit is not None and not (args.reuse_existing and wind_gust_floor_score_path.exists()):
+                        if not (case_root / "predictions" / "predictions_with_gust_recall_floor_guard_v1.parquet").exists():
+                            run_command(
+                                build_gust_recall_floor_guard_command(args=args, case_root=case_root),
+                                cwd=repo_root,
+                                dry_run=args.dry_run,
+                            )
+                        run_command(
+                            build_wind_gust_floor_guard_command(args=args, case_root=case_root),
+                            cwd=repo_root,
+                            dry_run=args.dry_run,
+                        )
+                        run_command(
+                            build_wind_gust_floor_guard_score_command(
+                                args=args,
+                                case=case,
+                                case_root=case_root,
+                                observation_paths=observation_paths,
+                            ),
+                            cwd=repo_root,
+                            dry_run=args.dry_run,
+                        )
                 except subprocess.CalledProcessError as exc:
                     if args.continue_on_error:
-                        failures.append({"run_id": case["run_id"], "error": f"shadow_router_threshold_or_local_fallback_v1: {exc}"})
+                        failures.append({"run_id": case["run_id"], "error": f"shadow_router_threshold_local_or_probability_event_v1: {exc}"})
                     else:
                         raise
         if args.dry_run:

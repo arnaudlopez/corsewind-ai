@@ -113,6 +113,9 @@ for summary_path in sys.argv[1:]:
             continue
         case_root = Path(output_root)
         for name in (
+            "hindcast_scored_rows_with_wind_gust_floor_guard_v1.parquet",
+            "hindcast_scored_rows_with_gust_recall_floor_guard_v1.parquet",
+            "hindcast_scored_rows_with_probability_event_guard_v1.parquet",
             "hindcast_scored_rows_with_local_fallback_guard_v1.parquet",
             "hindcast_scored_rows_with_threshold_guard_v1.parquet",
             "hindcast_scored_rows_with_shadow_router_v1.parquet",

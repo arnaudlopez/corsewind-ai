@@ -16,8 +16,26 @@ import assert_shadow_promotion_gate as gate  # noqa: E402
 
 
 DEFAULT_CANDIDATES = {
-    "wind": ("strong_gated", "router", "stacker", "guarded_stacker", "threshold_guard", "high_event_guard"),
-    "gust": ("high", "strong_gated", "router", "stacker", "guarded_stacker", "threshold_guard", "local_fallback_guard"),
+    "wind": (
+        "strong_gated",
+        "router",
+        "stacker",
+        "guarded_stacker",
+        "threshold_guard",
+        "high_event_guard",
+        "gust_floor_guard",
+    ),
+    "gust": (
+        "high",
+        "strong_gated",
+        "router",
+        "stacker",
+        "guarded_stacker",
+        "threshold_guard",
+        "local_fallback_guard",
+        "probability_event_guard",
+        "recall_floor_guard",
+    ),
 }
 
 GLOBAL_CHECK_PREFIXES = (

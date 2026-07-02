@@ -14,6 +14,7 @@ from typing import Any
 
 
 KT_PER_MS = 1.9438444924406
+THRESHOLD_EPSILON = 1e-9
 DEFAULT_SPOTS = (
     "cap_corse",
     "la_parata",
@@ -77,8 +78,8 @@ def threshold_metrics(frame: Any, pred_col: str, actual_col: str, threshold: flo
     values = frame[[pred_col, actual_col]].dropna()
     if values.empty:
         return {"n": 0}
-    pred = values[pred_col] >= threshold
-    actual = values[actual_col] >= threshold
+    pred = values[pred_col] >= threshold - THRESHOLD_EPSILON
+    actual = values[actual_col] >= threshold - THRESHOLD_EPSILON
     tp = int((pred & actual).sum())
     fp = int((pred & ~actual).sum())
     fn = int((~pred & actual).sum())
@@ -113,6 +114,7 @@ def build_threshold_summary(frame: Any) -> dict[str, Any]:
         "shadow_guarded_stacker_v1": "shadow_guarded_stacker_v1_wind_mean_kt",
         "threshold_guard_v1": "threshold_guard_v1_wind_mean_kt",
         "wind_high_event_guard_v1": "wind_high_event_guard_v1_wind_mean_kt",
+        "wind_gust_floor_guard_v1": "wind_gust_floor_guard_v1_wind_mean_kt",
     }
     gust_rails = {
         "ml": "champion_gust_kt",
@@ -124,6 +126,8 @@ def build_threshold_summary(frame: Any) -> dict[str, Any]:
         "shadow_guarded_stacker_v1": "shadow_guarded_stacker_v1_gust_kt",
         "threshold_guard_v1": "threshold_guard_v1_gust_kt",
         "local_fallback_guard_v1": "local_fallback_guard_v1_gust_kt",
+        "probability_event_guard_v1": "probability_event_guard_v1_gust_kt",
+        "gust_recall_floor_guard_v1": "gust_recall_floor_guard_v1_gust_kt",
     }
     for level in (12, 15, 20, 25):
         for rail, column in wind_rails.items():
@@ -140,7 +144,7 @@ def binary_alert_metrics(frame: Any, alert_col: str, actual_col: str, actual_thr
     if values.empty:
         return {"n": 0}
     pred = values[alert_col].astype(bool)
-    actual = values[actual_col] >= actual_threshold
+    actual = values[actual_col] >= actual_threshold - THRESHOLD_EPSILON
     tp = int((pred & actual).sum())
     fp = int((pred & ~actual).sum())
     fn = int((~pred & actual).sum())
@@ -197,7 +201,7 @@ def probability_metrics(frame: Any, prob_col: str, actual_col: str, actual_thres
     actual_values = pd.to_numeric(values[actual_col], errors="coerce")
     mask = probability.notna() & actual_values.notna()
     probability = probability[mask]
-    y_true = (actual_values[mask] >= actual_threshold).astype(int)
+    y_true = (actual_values[mask] >= actual_threshold - THRESHOLD_EPSILON).astype(int)
     if len(y_true) == 0:
         return {"n": 0}
     clipped = probability.clip(lower=1e-15, upper=1.0 - 1e-15)
@@ -380,6 +384,8 @@ def grouped_metrics(frame: Any, group_column: str) -> dict[str, Any]:
             item["wind_threshold_guard_v1_kt"] = metrics(group, "threshold_guard_v1_wind_mean_kt", "actual_wind_mean_kt")
         if "wind_high_event_guard_v1_wind_mean_kt" in group.columns:
             item["wind_high_event_guard_v1_kt"] = metrics(group, "wind_high_event_guard_v1_wind_mean_kt", "actual_wind_mean_kt")
+        if "wind_gust_floor_guard_v1_wind_mean_kt" in group.columns:
+            item["wind_gust_floor_guard_v1_kt"] = metrics(group, "wind_gust_floor_guard_v1_wind_mean_kt", "actual_wind_mean_kt")
         if "shadow_router_v1_gust_kt" in group.columns:
             item["gust_shadow_router_v1_kt"] = metrics(group, "shadow_router_v1_gust_kt", "actual_gust_kt")
         if "shadow_stacker_v1_gust_kt" in group.columns:
@@ -390,6 +396,12 @@ def grouped_metrics(frame: Any, group_column: str) -> dict[str, Any]:
             item["gust_threshold_guard_v1_kt"] = metrics(group, "threshold_guard_v1_gust_kt", "actual_gust_kt")
         if "local_fallback_guard_v1_gust_kt" in group.columns:
             item["gust_local_fallback_guard_v1_kt"] = metrics(group, "local_fallback_guard_v1_gust_kt", "actual_gust_kt")
+        if "probability_event_guard_v1_gust_kt" in group.columns:
+            item["gust_probability_event_guard_v1_kt"] = metrics(
+                group, "probability_event_guard_v1_gust_kt", "actual_gust_kt"
+            )
+        if "gust_recall_floor_guard_v1_gust_kt" in group.columns:
+            item["gust_recall_floor_guard_v1_kt"] = metrics(group, "gust_recall_floor_guard_v1_gust_kt", "actual_gust_kt")
         out[str(key)] = item
     return out
 
@@ -439,11 +451,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "shadow_guarded_stacker_v1_wind_mean_ms",
             "threshold_guard_v1_wind_mean_ms",
             "wind_high_event_guard_v1_wind_mean_ms",
+            "wind_gust_floor_guard_v1_wind_mean_ms",
             "shadow_router_v1_gust_ms",
             "shadow_stacker_v1_gust_ms",
             "shadow_guarded_stacker_v1_gust_ms",
             "threshold_guard_v1_gust_ms",
             "local_fallback_guard_v1_gust_ms",
+            "probability_event_guard_v1_gust_ms",
+            "gust_recall_floor_guard_v1_gust_ms",
             "actual_wind_mean_ms",
             "actual_gust_ms",
         ],
@@ -513,6 +528,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         overall["wind_threshold_guard_v1_kt"] = metrics(scored, "threshold_guard_v1_wind_mean_kt", "actual_wind_mean_kt")
     if "wind_high_event_guard_v1_wind_mean_kt" in scored.columns:
         overall["wind_high_event_guard_v1_kt"] = metrics(scored, "wind_high_event_guard_v1_wind_mean_kt", "actual_wind_mean_kt")
+    if "wind_gust_floor_guard_v1_wind_mean_kt" in scored.columns:
+        overall["wind_gust_floor_guard_v1_kt"] = metrics(scored, "wind_gust_floor_guard_v1_wind_mean_kt", "actual_wind_mean_kt")
     if "shadow_router_v1_gust_kt" in scored.columns:
         overall["gust_shadow_router_v1_kt"] = metrics(scored, "shadow_router_v1_gust_kt", "actual_gust_kt")
     if "shadow_stacker_v1_gust_kt" in scored.columns:
@@ -523,6 +540,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         overall["gust_threshold_guard_v1_kt"] = metrics(scored, "threshold_guard_v1_gust_kt", "actual_gust_kt")
     if "local_fallback_guard_v1_gust_kt" in scored.columns:
         overall["gust_local_fallback_guard_v1_kt"] = metrics(scored, "local_fallback_guard_v1_gust_kt", "actual_gust_kt")
+    if "probability_event_guard_v1_gust_kt" in scored.columns:
+        overall["gust_probability_event_guard_v1_kt"] = metrics(
+            scored, "probability_event_guard_v1_gust_kt", "actual_gust_kt"
+        )
+    if "gust_recall_floor_guard_v1_gust_kt" in scored.columns:
+        overall["gust_recall_floor_guard_v1_kt"] = metrics(scored, "gust_recall_floor_guard_v1_gust_kt", "actual_gust_kt")
 
     summary = {
         "format": "corsewind.live_hindcast_score.v1",
@@ -554,6 +577,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "peak_gust_shadow_guarded_stacker_v1_by_spot_kt": peak_summary(scored, "shadow_guarded_stacker_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "shadow_guarded_stacker_v1_gust_kt" in scored.columns else {},
         "peak_gust_threshold_guard_v1_by_spot_kt": peak_summary(scored, "threshold_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "threshold_guard_v1_gust_kt" in scored.columns else {},
         "peak_gust_local_fallback_guard_v1_by_spot_kt": peak_summary(scored, "local_fallback_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "local_fallback_guard_v1_gust_kt" in scored.columns else {},
+        "peak_gust_probability_event_guard_v1_by_spot_kt": peak_summary(scored, "probability_event_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "probability_event_guard_v1_gust_kt" in scored.columns else {},
+        "peak_gust_recall_floor_guard_v1_by_spot_kt": peak_summary(scored, "gust_recall_floor_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "gust_recall_floor_guard_v1_gust_kt" in scored.columns else {},
         "peak_wind_by_spot_kt": peak_summary(scored, "champion_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt"),
         "peak_wind_strong_gated_by_spot_kt": peak_summary(scored, "strong_gated_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "strong_gated_wind_mean_kt" in scored.columns else {},
         "peak_wind_shadow_router_v1_by_spot_kt": peak_summary(scored, "shadow_router_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "shadow_router_v1_wind_mean_kt" in scored.columns else {},
@@ -561,6 +586,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "peak_wind_shadow_guarded_stacker_v1_by_spot_kt": peak_summary(scored, "shadow_guarded_stacker_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "shadow_guarded_stacker_v1_wind_mean_kt" in scored.columns else {},
         "peak_wind_threshold_guard_v1_by_spot_kt": peak_summary(scored, "threshold_guard_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "threshold_guard_v1_wind_mean_kt" in scored.columns else {},
         "peak_wind_high_event_guard_v1_by_spot_kt": peak_summary(scored, "wind_high_event_guard_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "wind_high_event_guard_v1_wind_mean_kt" in scored.columns else {},
+        "peak_wind_gust_floor_guard_v1_by_spot_kt": peak_summary(scored, "wind_gust_floor_guard_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "wind_gust_floor_guard_v1_wind_mean_kt" in scored.columns else {},
     }
     args.output_json.parent.mkdir(parents=True, exist_ok=True)
     args.output_json.write_text(json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")

@@ -20,6 +20,8 @@ CONTINUOUS_RAILS = {
     "guarded_stacker": "shadow_guarded_stacker_v1_gust_kt",
     "threshold_guard": "threshold_guard_v1_gust_kt",
     "local_fallback_guard": "local_fallback_guard_v1_gust_kt",
+    "probability_event_guard": "probability_event_guard_v1_gust_kt",
+    "recall_floor_guard": "gust_recall_floor_guard_v1_gust_kt",
 }
 
 PROBABILITY_HEADS = {
@@ -35,6 +37,8 @@ ALERT_HEADS = {
     "alert_20": ("gust_alert_ge_20kt", 20.0),
     "alert_25": ("gust_alert_ge_25kt", 25.0),
 }
+THRESHOLD_EPSILON = 1e-9
+DEFAULT_TOLERANCES_KT = (0.5, 1.0, 2.0)
 
 
 def utc_now() -> str:
@@ -80,9 +84,57 @@ def deterministic_metric(frame: Any, column: str, threshold: float) -> dict[str,
     values = frame[[column, "actual_gust_kt"]].dropna()
     if values.empty:
         return {"n": 0}
-    pred = values[column].astype(float) >= threshold
-    actual = values["actual_gust_kt"].astype(float) >= threshold
-    return event_counts(pred, actual)
+    pred = values[column].astype(float) >= threshold - THRESHOLD_EPSILON
+    actual = values["actual_gust_kt"].astype(float) >= threshold - THRESHOLD_EPSILON
+    result = event_counts(pred, actual)
+    false_positive_margin = threshold - values.loc[pred & ~actual, "actual_gust_kt"].astype(float)
+    false_negative_margin = values.loc[~pred & actual, "actual_gust_kt"].astype(float) - threshold
+    result["false_positive_actual_margin_kt"] = margin_summary(false_positive_margin)
+    result["false_negative_actual_margin_kt"] = margin_summary(false_negative_margin)
+    result["tolerant_by_actual_margin_kt"] = {
+        format_tolerance_key(tolerance): tolerant_event_counts(
+            pred=pred,
+            actual=actual,
+            actual_value_kt=values["actual_gust_kt"].astype(float),
+            threshold=threshold,
+            tolerance=tolerance,
+        )
+        for tolerance in DEFAULT_TOLERANCES_KT
+    }
+    return result
+
+
+def format_tolerance_key(tolerance: float) -> str:
+    return f"{tolerance:g}kt"
+
+
+def tolerant_event_counts(pred: Any, actual: Any, actual_value_kt: Any, threshold: float, tolerance: float) -> dict[str, Any]:
+    near_threshold_disagreement = (pred != actual) & ((actual_value_kt - threshold).abs() <= tolerance + THRESHOLD_EPSILON)
+    result = event_counts(pred[~near_threshold_disagreement], actual[~near_threshold_disagreement])
+    result["neutralized_disagreements"] = int(near_threshold_disagreement.sum())
+    result["tolerance_kt"] = tolerance
+    return result
+
+
+def margin_summary(values: Any) -> dict[str, Any]:
+    if len(values) == 0:
+        return {
+            "count": 0,
+            "mean": None,
+            "max": None,
+            "within_0p5kt": 0,
+            "within_1kt": 0,
+            "within_2kt": 0,
+        }
+    values = values.astype(float).abs()
+    return {
+        "count": int(len(values)),
+        "mean": float(values.mean()),
+        "max": float(values.max()),
+        "within_0p5kt": int((values <= 0.5 + THRESHOLD_EPSILON).sum()),
+        "within_1kt": int((values <= 1.0 + THRESHOLD_EPSILON).sum()),
+        "within_2kt": int((values <= 2.0 + THRESHOLD_EPSILON).sum()),
+    }
 
 
 def probability_metric(frame: Any, column: str, threshold: float) -> dict[str, Any]:
@@ -92,7 +144,7 @@ def probability_metric(frame: Any, column: str, threshold: float) -> dict[str, A
     if values.empty:
         return {"n": 0}
     probability = values[column].astype(float).clip(lower=0.0, upper=1.0)
-    actual = values["actual_gust_kt"].astype(float) >= threshold
+    actual = values["actual_gust_kt"].astype(float) >= threshold - THRESHOLD_EPSILON
     y = actual.astype(float)
     brier = float(((probability - y) ** 2).mean())
     best = None
@@ -126,7 +178,7 @@ def alert_metric(frame: Any, column: str, threshold: float) -> dict[str, Any]:
     if values.empty:
         return {"n": 0}
     pred = values[column].astype(bool)
-    actual = values["actual_gust_kt"].astype(float) >= threshold
+    actual = values["actual_gust_kt"].astype(float) >= threshold - THRESHOLD_EPSILON
     return event_counts(pred, actual)
 
 
@@ -235,6 +287,9 @@ def render_markdown(result: dict[str, Any]) -> str:
             ]
         )
         for name, metric in (item.get("deterministic") or {}).items():
+            tolerant = metric.get("tolerant_by_actual_margin_kt") or {}
+            tol1 = tolerant.get("1kt") or {}
+            tol2 = tolerant.get("2kt") or {}
             lines.append(
                 "| deterministic | "
                 + " | ".join(
@@ -246,7 +301,7 @@ def render_markdown(result: dict[str, Any]) -> str:
                         fmt(metric.get("tp"), 0),
                         fmt(metric.get("fp"), 0),
                         fmt(metric.get("fn"), 0),
-                        "",
+                        f"tol1 CSI `{fmt(tol1.get('csi'))}`, tol2 CSI `{fmt(tol2.get('csi'))}`, neutralized2 `{fmt(tol2.get('neutralized_disagreements'), 0)}`",
                     ]
                 )
                 + " |"

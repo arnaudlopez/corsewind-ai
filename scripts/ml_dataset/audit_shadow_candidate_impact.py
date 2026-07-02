@@ -18,6 +18,7 @@ TARGETS = {
         "candidates": {
             "threshold_guard": "threshold_guard_v1_wind_mean_kt",
             "high_event_guard": "wind_high_event_guard_v1_wind_mean_kt",
+            "gust_floor_guard": "wind_gust_floor_guard_v1_wind_mean_kt",
         },
         "baselines": {
             "raw": "raw_wind_mean_kt",
@@ -25,6 +26,7 @@ TARGETS = {
             "strong_gated": "strong_gated_wind_mean_kt",
             "router": "shadow_router_v1_wind_mean_kt",
             "threshold_guard": "threshold_guard_v1_wind_mean_kt",
+            "high_event_guard": "wind_high_event_guard_v1_wind_mean_kt",
         },
     },
     "gust": {
@@ -32,6 +34,8 @@ TARGETS = {
         "candidates": {
             "threshold_guard": "threshold_guard_v1_gust_kt",
             "local_fallback_guard": "local_fallback_guard_v1_gust_kt",
+            "probability_event_guard": "probability_event_guard_v1_gust_kt",
+            "recall_floor_guard": "gust_recall_floor_guard_v1_gust_kt",
         },
         "baselines": {
             "raw": "raw_gust_kt",
@@ -39,6 +43,8 @@ TARGETS = {
             "high": "gust_high_kt",
             "guarded_stacker": "shadow_guarded_stacker_v1_gust_kt",
             "threshold_guard": "threshold_guard_v1_gust_kt",
+            "local_fallback_guard": "local_fallback_guard_v1_gust_kt",
+            "probability_event_guard": "probability_event_guard_v1_gust_kt",
         },
     },
 }

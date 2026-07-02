@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shutil
+import statistics
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,6 +76,25 @@ def latest_coverage(log_file: Path) -> dict[str, Any] | None:
         parsed["log_time_utc"] = prefix.strip().split(" ", 1)[0]
         latest = parsed
     return latest
+
+
+def coverage_history(log_file: Path, limit: int = 24) -> list[dict[str, Any]]:
+    text = read_text(log_file)
+    if not text:
+        return []
+    entries = []
+    for line in text.splitlines():
+        marker = " coverage "
+        if marker not in line:
+            continue
+        prefix, payload = line.split(marker, 1)
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        parsed["log_time_utc"] = prefix.strip().split(" ", 1)[0]
+        entries.append(parsed)
+    return entries[-limit:]
 
 
 def suite_status(output_root: Path) -> dict[str, Any]:
@@ -207,11 +227,34 @@ def rollup_status(rollup_root: Path | None) -> dict[str, Any] | None:
             if (rollup_root / "promotion_decision.json").exists()
             else 0,
         },
+        "promotion_package": {
+            "path": str(rollup_root / "promotion_package.json"),
+            "markdown_path": str(rollup_root / "promotion_package.md"),
+            "exists": (rollup_root / "promotion_package.json").exists(),
+            "size_bytes": (rollup_root / "promotion_package.json").stat().st_size
+            if (rollup_root / "promotion_package.json").exists()
+            else 0,
+        },
+        "tolerant_threshold_gate_review": {
+            "path": str(rollup_root / "tolerant_threshold_gate_review.json"),
+            "markdown_path": str(rollup_root / "tolerant_threshold_gate_review.md"),
+            "exists": (rollup_root / "tolerant_threshold_gate_review.json").exists(),
+            "size_bytes": (rollup_root / "tolerant_threshold_gate_review.json").stat().st_size
+            if (rollup_root / "tolerant_threshold_gate_review.json").exists()
+            else 0,
+        },
         "threshold_guard_audit": {
             "path": str(rollup_root / "threshold_guard_impact_audit.json"),
             "exists": (rollup_root / "threshold_guard_impact_audit.json").exists(),
             "size_bytes": (rollup_root / "threshold_guard_impact_audit.json").stat().st_size
             if (rollup_root / "threshold_guard_impact_audit.json").exists()
+            else 0,
+        },
+        "candidate_impact_audit": {
+            "path": str(rollup_root / "shadow_candidate_impact_audit.json"),
+            "exists": (rollup_root / "shadow_candidate_impact_audit.json").exists(),
+            "size_bytes": (rollup_root / "shadow_candidate_impact_audit.json").stat().st_size
+            if (rollup_root / "shadow_candidate_impact_audit.json").exists()
             else 0,
         },
         "rollup_index": {
@@ -267,8 +310,32 @@ def rollup_status(rollup_root: Path | None) -> dict[str, Any] | None:
                 "candidate": ((item.get("candidate") or {}).get("candidate")),
                 "best_candidate": ((item.get("best") or {}).get("candidate")),
                 "best_rmse_candidate": ((item.get("best_by_rmse") or {}).get("candidate")),
+                "local_risk_flag_count": ((item.get("local_risk") or {}).get("flag_count")),
             }
             for target, item in (decision.get("targets") or {}).items()
+        }
+    promotion_package = read_json(rollup_root / "promotion_package.json")
+    if promotion_package:
+        recommendation = promotion_package.get("recommendation") or {}
+        out["promotion_package"]["format"] = promotion_package.get("format")
+        out["promotion_package"]["decision"] = promotion_package.get("decision")
+        out["promotion_package"]["recommended_action"] = recommendation.get("action")
+        out["promotion_package"]["recommendation_reason"] = recommendation.get("reason")
+        out["promotion_package"]["target_readiness"] = {
+            target: (item.get("readiness") or {})
+            for target, item in (promotion_package.get("targets") or {}).items()
+        }
+    tolerant_review = read_json(rollup_root / "tolerant_threshold_gate_review.json")
+    if tolerant_review:
+        out["tolerant_threshold_gate_review"]["format"] = tolerant_review.get("format")
+        out["tolerant_threshold_gate_review"]["targets"] = {
+            target: {
+                "candidate": item.get("candidate"),
+                "strict_failure_count": item.get("strict_failure_count"),
+                "tolerant_resolved_count": item.get("tolerant_resolved_count"),
+                "unresolved_count": item.get("unresolved_count"),
+            }
+            for target, item in (tolerant_review.get("targets") or {}).items()
         }
     threshold_audit = read_json(rollup_root / "threshold_guard_impact_audit.json")
     if threshold_audit:
@@ -281,6 +348,23 @@ def rollup_status(rollup_root: Path | None) -> dict[str, Any] | None:
             ((threshold_audit.get("overall") or {}).get("gust") or {}).get("rmse_gain_vs_baseline") or {}
         )
         out["threshold_guard_audit"]["risk_flags"] = threshold_audit.get("risk_flags") or {}
+    candidate_audit = read_json(rollup_root / "shadow_candidate_impact_audit.json")
+    if candidate_audit:
+        risk_flags = candidate_audit.get("risk_flags") or {}
+        by_target_candidate = risk_flags.get("by_target_candidate") or {}
+        out["candidate_impact_audit"]["format"] = candidate_audit.get("format")
+        out["candidate_impact_audit"]["rows"] = candidate_audit.get("rows")
+        out["candidate_impact_audit"]["flag_count"] = risk_flags.get("flag_count")
+        out["candidate_impact_audit"]["by_target_candidate"] = {
+            target: {
+                candidate: {
+                    "flag_count": (item or {}).get("flag_count", 0),
+                    "top_flags": (item or {}).get("flags", [])[:3],
+                }
+                for candidate, item in sorted((candidates or {}).items())
+            }
+            for target, candidates in sorted(by_target_candidate.items())
+        }
     return out
 
 
@@ -319,6 +403,221 @@ def disk_status(path: Path) -> dict[str, Any]:
         "used_gb": round(usage.used / 1_000_000_000, 3),
         "free_gb": round(usage.free / 1_000_000_000, 3),
         "used_percent": round(usage.used / usage.total * 100.0, 2),
+    }
+
+
+def coverage_wait_status(coverage: dict[str, Any] | None) -> dict[str, Any]:
+    if not coverage:
+        return {
+            "status": "unknown",
+            "reason": "no coverage payload",
+            "target_end_utc": None,
+            "min_latest_observation_utc": None,
+            "max_latest_observation_utc": None,
+            "minutes_until_target_end_from_min_obs": None,
+            "missing_spot_count": None,
+        }
+    target_end = parse_utc(coverage.get("target_end_utc"))
+    latest_values = [
+        parsed
+        for value in (coverage.get("latest_by_spot") or {}).values()
+        for parsed in [parse_utc(value)]
+        if parsed is not None
+    ]
+    min_latest = min(latest_values) if latest_values else None
+    max_latest = max(latest_values) if latest_values else None
+    remaining = None
+    if target_end is not None and min_latest is not None:
+        remaining = round((target_end - min_latest).total_seconds() / 60.0, 3)
+    spot_rows = spot_coverage_rows(coverage, target_end, max_latest)
+    complete = bool(coverage.get("complete"))
+    if complete:
+        status = "complete"
+        reason = "all tracked spots have observations through target_end_utc"
+    elif remaining is None:
+        status = "unknown"
+        reason = "missing target_end_utc or latest observation timestamps"
+    elif remaining > 0:
+        status = "waiting_for_more_observations"
+        reason = f"oldest tracked spot is still {remaining:.1f} minutes before target_end_utc"
+    else:
+        status = "ready_or_needs_recheck"
+        reason = "coverage timestamps appear to reach target_end_utc but coverage is still marked incomplete"
+    return {
+        "status": status,
+        "reason": reason,
+        "target_end_utc": None if target_end is None else target_end.isoformat().replace("+00:00", "Z"),
+        "min_latest_observation_utc": None if min_latest is None else min_latest.isoformat().replace("+00:00", "Z"),
+        "max_latest_observation_utc": None if max_latest is None else max_latest.isoformat().replace("+00:00", "Z"),
+        "minutes_until_target_end_from_min_obs": remaining,
+        "missing_spot_count": len(coverage.get("missing") or []),
+        "spots": spot_rows,
+        "slow_or_stale_spots": [
+            row
+            for row in spot_rows
+            if row.get("relative_status") in {"slow_or_hourly", "stale_candidate", "missing"}
+        ],
+    }
+
+
+def spot_coverage_rows(
+    coverage: dict[str, Any],
+    target_end: datetime | None,
+    max_latest: datetime | None,
+) -> list[dict[str, Any]]:
+    rows = []
+    missing = set(coverage.get("missing") or [])
+    for spot, value in sorted((coverage.get("latest_by_spot") or {}).items()):
+        parsed = parse_utc(value)
+        minutes_to_target_end = None
+        lag_vs_newest = None
+        if parsed is not None and target_end is not None:
+            minutes_to_target_end = round((target_end - parsed).total_seconds() / 60.0, 3)
+        if parsed is not None and max_latest is not None:
+            lag_vs_newest = round((max_latest - parsed).total_seconds() / 60.0, 3)
+        rows.append(
+            {
+                "spot_id": spot,
+                "latest_observation_utc": None if parsed is None else parsed.isoformat().replace("+00:00", "Z"),
+                "minutes_to_target_end": minutes_to_target_end,
+                "lag_vs_newest_minutes": lag_vs_newest,
+                "blocks_target_end": spot in missing,
+                "relative_status": classify_spot_lag(lag_vs_newest),
+            }
+        )
+    return rows
+
+
+def classify_spot_lag(lag_vs_newest_minutes: float | None) -> str:
+    if lag_vs_newest_minutes is None:
+        return "missing"
+    if lag_vs_newest_minutes <= 20.0:
+        return "fresh"
+    if lag_vs_newest_minutes <= 75.0:
+        return "slow_or_hourly"
+    return "stale_candidate"
+
+
+def coverage_cadence_status(history: list[dict[str, Any]]) -> dict[str, Any]:
+    if not history:
+        return {"status": "unknown", "reason": "no coverage history", "spots": []}
+    by_spot: dict[str, list[tuple[datetime | None, datetime]]] = {}
+    for entry in history:
+        log_time = parse_utc(entry.get("log_time_utc"))
+        for spot, value in (entry.get("latest_by_spot") or {}).items():
+            obs_time = parse_utc(value)
+            if obs_time is None:
+                continue
+            by_spot.setdefault(spot, []).append((log_time, obs_time))
+    rows = []
+    for spot, values in sorted(by_spot.items()):
+        changes: list[tuple[datetime | None, datetime]] = []
+        previous_obs = None
+        for log_time, obs_time in values:
+            if previous_obs is None or obs_time != previous_obs:
+                changes.append((log_time, obs_time))
+                previous_obs = obs_time
+        obs_deltas = []
+        for previous, current in zip(changes, changes[1:]):
+            delta_minutes = (current[1] - previous[1]).total_seconds() / 60.0
+            if delta_minutes > 0:
+                obs_deltas.append(delta_minutes)
+        median_cadence = round(statistics.median(obs_deltas), 3) if obs_deltas else None
+        last_log_time, latest_obs_time = changes[-1] if changes else values[-1]
+        history_last_log = parse_utc(history[-1].get("log_time_utc"))
+        minutes_since_last_change = None
+        if last_log_time is not None and history_last_log is not None:
+            minutes_since_last_change = round((history_last_log - last_log_time).total_seconds() / 60.0, 3)
+        rows.append(
+            {
+                "spot_id": spot,
+                "history_points": len(values),
+                "change_count": len(changes),
+                "latest_observation_utc": latest_obs_time.isoformat().replace("+00:00", "Z"),
+                "median_observation_cadence_minutes": median_cadence,
+                "minutes_since_last_change": minutes_since_last_change,
+                "inferred_cadence": classify_observation_cadence(median_cadence, minutes_since_last_change),
+            }
+        )
+    stale_like = [
+        row
+        for row in rows
+        if row.get("inferred_cadence") in {"irregular_or_stale", "unknown_single_update"}
+    ]
+    return {
+        "status": "ok" if rows else "unknown",
+        "reason": "cadence inferred from recent coverage history" if rows else "no parsable spot history",
+        "history_entry_count": len(history),
+        "spots": rows,
+        "stale_like_spots": stale_like,
+    }
+
+
+def classify_observation_cadence(
+    median_cadence_minutes: float | None,
+    minutes_since_last_change: float | None,
+) -> str:
+    if median_cadence_minutes is None:
+        if minutes_since_last_change is not None and minutes_since_last_change <= 75.0:
+            return "unknown_single_update"
+        return "irregular_or_stale"
+    if median_cadence_minutes <= 30.0:
+        return "sub_hourly_like"
+    if median_cadence_minutes <= 75.0:
+        return "hourly_like"
+    return "irregular_or_stale"
+
+
+def recommend_next_action(status: dict[str, Any]) -> dict[str, Any]:
+    health = status.get("health") or {}
+    suite = status.get("suite") or {}
+    artifacts = status.get("artifacts") or {}
+    coverage_wait = status.get("coverage_wait") or {}
+    rollup = status.get("rollup") or {}
+    decision = (rollup.get("promotion_decision") or {}).get("decision")
+    evidence = (rollup.get("promotion_review") or {}).get("evidence_progress") or {}
+    if not health.get("ok"):
+        return {
+            "action": "inspect_watchers_and_logs",
+            "reason": "; ".join(health.get("reasons") or ["health check is not ok"]),
+        }
+    if not suite.get("complete"):
+        if coverage_wait.get("status") == "waiting_for_more_observations":
+            return {
+                "action": "wait_for_observations",
+                "reason": coverage_wait.get("reason"),
+            }
+        return {
+            "action": "let_shadow_watcher_continue_or_recheck_coverage",
+            "reason": coverage_wait.get("reason") or "suite is not complete yet",
+        }
+    postprocessed = bool(
+        (artifacts.get("aggregate_json") or {}).get("exists")
+        and (artifacts.get("wind_gate_json") or {}).get("exists")
+        and (artifacts.get("gust_gate_json") or {}).get("exists")
+    )
+    if not postprocessed:
+        return {
+            "action": "run_shadow_suite_postprocess",
+            "reason": "suite is complete but postprocess artifacts are missing",
+        }
+    if decision == "promote_candidate":
+        return {
+            "action": "review_and_package_promotion_candidate",
+            "reason": "rollup contains at least one promotable candidate",
+        }
+    if not evidence.get("ready"):
+        return {
+            "action": "continue_multi_day_shadow_campaign",
+            "reason": (
+                f"evidence gate incomplete: {evidence.get('actual_days')}/{evidence.get('required_days')} days, "
+                f"{evidence.get('case_count')}/{evidence.get('required_cases')} cases, "
+                f"{evidence.get('joined_rows')}/{evidence.get('required_rows')} rows"
+            ),
+        }
+    return {
+        "action": "inspect_specialist_plan_and_train_next_guard",
+        "reason": "evidence is ready but current candidates are not promotable",
     }
 
 
@@ -416,11 +715,12 @@ def build_status(args: argparse.Namespace) -> dict[str, Any]:
     main_watcher = pid_status(args.main_pid_file)
     postprocess_watcher = pid_status(args.postprocess_pid_file)
     coverage = latest_coverage(args.main_log_file)
+    coverage_entries = coverage_history(args.main_log_file)
     suite = suite_status(output_root)
     artifacts = artifact_status(output_root)
     rollup = rollup_status(args.rollup_root) if not args.no_rollup else None
     campaign = campaign_status(args.campaign_id, args.campaign_log_root)
-    return {
+    status = {
         "format": "corsewind.shadow_validation_status.v1",
         "generated_at_utc": generated_at,
         "target_date": args.target_date,
@@ -428,6 +728,8 @@ def build_status(args: argparse.Namespace) -> dict[str, Any]:
         "main_watcher": main_watcher,
         "postprocess_watcher": postprocess_watcher,
         "latest_coverage": coverage,
+        "coverage_wait": coverage_wait_status(coverage),
+        "coverage_cadence": coverage_cadence_status(coverage_entries),
         "postprocess_log_tail": (read_text(args.postprocess_log_file) or "").splitlines()[-8:],
         "suite": suite,
         "artifacts": artifacts,
@@ -444,13 +746,18 @@ def build_status(args: argparse.Namespace) -> dict[str, Any]:
             max_coverage_age_minutes=args.max_coverage_age_minutes,
         ),
     }
+    status["recommended_next_action"] = recommend_next_action(status)
+    return status
 
 
 def render_markdown(status: dict[str, Any]) -> str:
     suite = status["suite"]
     coverage = status.get("latest_coverage") or {}
+    coverage_wait = status.get("coverage_wait") or {}
+    coverage_cadence = status.get("coverage_cadence") or {}
     disk = status["disk"]
     health = status["health"]
+    recommended = status.get("recommended_next_action") or {}
     lines = [
         "# Shadow Validation Status",
         "",
@@ -463,6 +770,8 @@ def render_markdown(status: dict[str, Any]) -> str:
         f"- suite complete: `{suite['complete']}`",
         f"- cases: `{suite['scored_cases']}/{suite['case_count']}` scored, `{suite['shadow_cases']}/{suite['case_count']}` shadow",
         f"- disk free: `{disk['free_gb']} GB`",
+        f"- recommended next action: `{recommended.get('action')}`",
+        f"- recommendation reason: `{recommended.get('reason')}`",
         "",
     ]
     if health.get("reasons"):
@@ -480,13 +789,42 @@ def render_markdown(status: dict[str, Any]) -> str:
                 f"- age minutes: `{health.get('coverage_age_minutes')}`",
                 f"- target end: `{coverage.get('target_end_utc')}`",
                 f"- missing: `{', '.join(coverage.get('missing') or [])}`",
+                f"- wait status: `{coverage_wait.get('status')}`",
+                f"- wait reason: `{coverage_wait.get('reason')}`",
+                f"- oldest observation: `{coverage_wait.get('min_latest_observation_utc')}`",
+                f"- newest observation: `{coverage_wait.get('max_latest_observation_utc')}`",
+                f"- minutes until target end from oldest spot: `{coverage_wait.get('minutes_until_target_end_from_min_obs')}`",
                 "",
-                "| Spot | Latest observation UTC |",
-                "| --- | --- |",
+                "| Spot | Latest observation UTC | Lag vs newest min | Minutes to target end | Relative status |",
+                "| --- | --- | ---: | ---: | --- |",
             ]
         )
-        for spot, value in sorted((coverage.get("latest_by_spot") or {}).items()):
-            lines.append(f"| `{spot}` | `{value}` |")
+        for row in coverage_wait.get("spots") or []:
+            lines.append(
+                f"| `{row.get('spot_id')}` | `{row.get('latest_observation_utc')}` | "
+                f"{row.get('lag_vs_newest_minutes')} | {row.get('minutes_to_target_end')} | "
+                f"`{row.get('relative_status')}` |"
+            )
+        lines.append("")
+    if coverage_cadence.get("spots"):
+        lines.extend(
+            [
+                "## Coverage Cadence",
+                "",
+                f"- status: `{coverage_cadence.get('status')}`",
+                f"- history entries: `{coverage_cadence.get('history_entry_count')}`",
+                f"- reason: `{coverage_cadence.get('reason')}`",
+                "",
+                "| Spot | Latest observation UTC | Changes | Median cadence min | Minutes since last change | Inferred cadence |",
+                "| --- | --- | ---: | ---: | ---: | --- |",
+            ]
+        )
+        for row in coverage_cadence.get("spots") or []:
+            lines.append(
+                f"| `{row.get('spot_id')}` | `{row.get('latest_observation_utc')}` | "
+                f"{row.get('change_count')} | {row.get('median_observation_cadence_minutes')} | "
+                f"{row.get('minutes_since_last_change')} | `{row.get('inferred_cadence')}` |"
+            )
         lines.append("")
     if suite.get("cases"):
         lines.extend(["## Suite Cases", "", "| Case | Score | Shadow | Rows | Scored end |", "| --- | --- | --- | ---: | --- |"])
@@ -512,7 +850,10 @@ def render_markdown(status: dict[str, Any]) -> str:
         gust_gate = rollup.get("gust_guarded_stacker_gate") or {}
         promotion_review = rollup.get("promotion_review") or {}
         promotion_decision = rollup.get("promotion_decision") or {}
+        promotion_package = rollup.get("promotion_package") or {}
+        tolerant_review = rollup.get("tolerant_threshold_gate_review") or {}
         threshold_audit = rollup.get("threshold_guard_audit") or {}
+        candidate_audit = rollup.get("candidate_impact_audit") or {}
         evidence = promotion_review.get("evidence_progress") or {}
         best = promotion_review.get("best") or {}
         best_by_rmse = promotion_review.get("best_by_rmse") or {}
@@ -526,8 +867,6 @@ def render_markdown(status: dict[str, Any]) -> str:
                 f"- aggregate cases: `{aggregate.get('case_count')}`",
                 f"- aggregate shadow cases: `{aggregate.get('shadow_case_count')}`",
                 f"- aggregate rows: `{aggregate.get('joined_rows')}`",
-                f"- wind router gate: `{wind_gate.get('decision')}` passed `{wind_gate.get('passed')}`",
-                f"- gust guarded stacker gate: `{gust_gate.get('decision')}` passed `{gust_gate.get('passed')}`",
                 f"- evidence ready: `{evidence.get('ready')}`",
                 f"- evidence days/cases/rows: `{evidence.get('actual_days')}/{evidence.get('required_days')}` "
                 f"`{evidence.get('case_count')}/{evidence.get('required_cases')}` "
@@ -541,6 +880,12 @@ def render_markdown(status: dict[str, Any]) -> str:
                 f"- best wind by RMSE: `{(best_by_rmse.get('wind') or {}).get('candidate')}` rmse `{(best_by_rmse.get('wind') or {}).get('rmse_ms')}`",
                 f"- best gust by RMSE: `{(best_by_rmse.get('gust') or {}).get('candidate')}` rmse `{(best_by_rmse.get('gust') or {}).get('rmse_ms')}`",
                 f"- final promotion decision: `{promotion_decision.get('decision')}`",
+                f"- promotion package: `{promotion_package.get('markdown_path')}`",
+                f"- package recommended action: `{promotion_package.get('recommended_action')}`",
+                f"- package reason: `{promotion_package.get('recommendation_reason')}`",
+                f"- tolerant threshold review: `{tolerant_review.get('markdown_path')}`",
+                f"- candidate impact audit rows: `{candidate_audit.get('rows')}`",
+                f"- candidate impact local risk flags: `{candidate_audit.get('flag_count')}`",
                 f"- threshold guard audit rows: `{threshold_audit.get('rows')}`",
                 f"- threshold guard wind gains: `{threshold_audit.get('wind_rmse_gain_vs_baseline')}`",
                 f"- threshold guard gust gains: `{threshold_audit.get('gust_rmse_gain_vs_baseline')}`",
@@ -562,6 +907,51 @@ def render_markdown(status: dict[str, Any]) -> str:
                     f"| `{target}` | `{item.get('decision')}` | `{item.get('blocker_type')}` | "
                     f"`{item.get('candidate')}` | `{item.get('best_candidate')}` | `{item.get('best_rmse_candidate')}` |"
                 )
+            lines.append("")
+        if promotion_package.get("target_readiness"):
+            lines.extend(["### Target Readiness", "", "| Target | State | Reason |", "| --- | --- | --- |"])
+            for target, item in sorted((promotion_package.get("target_readiness") or {}).items()):
+                lines.append(f"| `{target}` | `{item.get('state')}` | {item.get('reason')} |")
+            lines.append("")
+        if tolerant_review.get("targets"):
+            lines.extend(
+                [
+                    "### Tolerant Threshold Gate Review",
+                    "",
+                    "| Target | Candidate | Strict Failures | Resolved By Tolerance | Unresolved |",
+                    "| --- | --- | ---: | ---: | ---: |",
+                ]
+            )
+            for target, item in sorted((tolerant_review.get("targets") or {}).items()):
+                lines.append(
+                    f"| `{target}` | `{item.get('candidate')}` | {item.get('strict_failure_count')} | "
+                    f"{item.get('tolerant_resolved_count')} | {item.get('unresolved_count')} |"
+                )
+            lines.append("")
+        if candidate_audit.get("by_target_candidate"):
+            lines.extend(
+                [
+                    "### Candidate Local Risk",
+                    "",
+                    "| Target | Candidate | Flags | Top Risk Cells |",
+                    "| --- | --- | ---: | --- |",
+                ]
+            )
+            for target, candidates in sorted((candidate_audit.get("by_target_candidate") or {}).items()):
+                for candidate, item in sorted((candidates or {}).items()):
+                    top_cells = []
+                    for flag in item.get("top_flags") or []:
+                        regression = flag.get("rmse_regression_kt")
+                        if regression is None:
+                            regression = flag.get("regression")
+                        top_cells.append(
+                            f"{flag.get('group')}={flag.get('value')} "
+                            f"+{regression}kt"
+                        )
+                    lines.append(
+                        f"| `{target}` | `{candidate}` | {item.get('flag_count') or 0} | "
+                        f"{'; '.join(top_cells)} |"
+                    )
             lines.append("")
         if wind_gate.get("reasons") or gust_gate.get("reasons"):
             lines.extend(["### Gate Reasons", ""])

@@ -131,6 +131,9 @@ for summary_path in sys.argv[1:]:
             continue
         case_root = Path(output_root)
         for name in (
+            "hindcast_scored_rows_with_wind_gust_floor_guard_v1.parquet",
+            "hindcast_scored_rows_with_gust_recall_floor_guard_v1.parquet",
+            "hindcast_scored_rows_with_probability_event_guard_v1.parquet",
             "hindcast_scored_rows_with_local_fallback_guard_v1.parquet",
             "hindcast_scored_rows_with_threshold_guard_v1.parquet",
             "hindcast_scored_rows_with_shadow_router_v1.parquet",
@@ -161,6 +164,12 @@ if (( ${#event_head_scored[@]} > 0 )); then
     "${event_head_args[@]}" \
     --output-json "$OUTPUT_ROOT/gust_threshold_event_head_audit.json" \
     --output-markdown "$OUTPUT_ROOT/gust_threshold_event_head_audit.md"
+  "$PY_ML" scripts/ml_dataset/review_tolerant_threshold_gates.py \
+    --promotion-review-json "$OUTPUT_ROOT/promotion_candidate_review.json" \
+    --wind-event-head-audit-json "$OUTPUT_ROOT/wind_threshold_event_head_audit.json" \
+    --gust-event-head-audit-json "$OUTPUT_ROOT/gust_threshold_event_head_audit.json" \
+    --output-json "$OUTPUT_ROOT/tolerant_threshold_gate_review.json" \
+    --output-markdown "$OUTPUT_ROOT/tolerant_threshold_gate_review.md"
 fi
 
 decision_args=(--promotion-review-json "$OUTPUT_ROOT/promotion_candidate_review.json")
@@ -196,6 +205,23 @@ fi
   --output-json "$OUTPUT_ROOT/next_nowcasting_specialist_plan.json" \
   --output-markdown "$OUTPUT_ROOT/next_nowcasting_specialist_plan.md"
 
+package_args=(
+  --rollup-root "$OUTPUT_ROOT"
+  --promotion-review-json "$OUTPUT_ROOT/promotion_candidate_review.json"
+  --promotion-decision-json "$OUTPUT_ROOT/promotion_decision.json"
+  --next-specialist-plan-json "$OUTPUT_ROOT/next_nowcasting_specialist_plan.json"
+  --output-json "$OUTPUT_ROOT/promotion_package.json"
+  --output-markdown "$OUTPUT_ROOT/promotion_package.md"
+)
+if [[ -s "$ML_ROOT/live_inference/shadow_status_latest.json" ]]; then
+  package_args+=(--shadow-status-json "$ML_ROOT/live_inference/shadow_status_latest.json")
+fi
+if [[ -s "$OUTPUT_ROOT/tolerant_threshold_gate_review.json" ]]; then
+  package_args+=(--tolerant-threshold-gate-review-json "$OUTPUT_ROOT/tolerant_threshold_gate_review.json")
+fi
+"$PY_ML" scripts/ml_dataset/package_shadow_promotion.py \
+  "${package_args[@]}"
+
 printf 'rollup complete\n'
 printf 'output=%s\n' "$OUTPUT_ROOT"
 printf 'suite_count=%s\n' "${#summaries[@]}"
@@ -205,10 +231,12 @@ printf 'gust_gate=%s\n' "$OUTPUT_ROOT/gust_guarded_stacker_promotion_gate.json"
 printf 'promotion_review=%s\n' "$OUTPUT_ROOT/promotion_candidate_review.json"
 printf 'promotion_decision=%s\n' "$OUTPUT_ROOT/promotion_decision.json"
 printf 'next_specialist_plan=%s\n' "$OUTPUT_ROOT/next_nowcasting_specialist_plan.json"
+printf 'promotion_package=%s\n' "$OUTPUT_ROOT/promotion_package.json"
 if (( ${#event_head_scored[@]} > 0 )); then
   printf 'shadow_candidate_impact_audit=%s\n' "$OUTPUT_ROOT/shadow_candidate_impact_audit.json"
   printf 'wind_threshold_event_head_audit=%s\n' "$OUTPUT_ROOT/wind_threshold_event_head_audit.json"
   printf 'gust_threshold_event_head_audit=%s\n' "$OUTPUT_ROOT/gust_threshold_event_head_audit.json"
+  printf 'tolerant_threshold_gate_review=%s\n' "$OUTPUT_ROOT/tolerant_threshold_gate_review.json"
 fi
 if (( ${#threshold_guard_scored[@]} > 0 )); then
   printf 'threshold_guard_audit=%s\n' "$OUTPUT_ROOT/threshold_guard_impact_audit.json"

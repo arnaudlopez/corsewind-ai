@@ -24,6 +24,7 @@ METRIC_KEYS = {
     "wind_guarded_stacker": ("shadow_router_v1", "overall_ms", "wind_guarded_stacker"),
     "wind_threshold_guard": ("shadow_router_v1", "overall_ms", "wind_threshold_guard"),
     "wind_high_event_guard": ("shadow_router_v1", "overall_ms", "wind_high_event_guard"),
+    "wind_gust_floor_guard": ("shadow_router_v1", "overall_ms", "wind_gust_floor_guard"),
     "gust_raw": ("overall_ms", "gust_raw"),
     "gust_champion": ("overall_ms", "gust_champion"),
     "gust_high": ("overall_ms", "gust_high"),
@@ -33,6 +34,8 @@ METRIC_KEYS = {
     "gust_guarded_stacker": ("shadow_router_v1", "overall_ms", "gust_guarded_stacker"),
     "gust_threshold_guard": ("shadow_router_v1", "overall_ms", "gust_threshold_guard"),
     "gust_local_fallback_guard": ("shadow_router_v1", "overall_ms", "gust_local_fallback_guard"),
+    "gust_probability_event_guard": ("shadow_router_v1", "overall_ms", "gust_probability_event_guard"),
+    "gust_recall_floor_guard": ("shadow_router_v1", "overall_ms", "gust_recall_floor_guard"),
 }
 
 def build_threshold_keys() -> dict[str, tuple[str, ...]]:
@@ -46,6 +49,7 @@ def build_threshold_keys() -> dict[str, tuple[str, ...]]:
         "guarded_stacker": ("shadow_router_v1", "thresholds", "wind_{level}kt_guarded_stacker"),
         "threshold_guard": ("shadow_router_v1", "thresholds", "wind_{level}kt_threshold_guard"),
         "high_event_guard": ("shadow_router_v1", "thresholds", "wind_{level}kt_high_event_guard"),
+        "gust_floor_guard": ("shadow_router_v1", "thresholds", "wind_{level}kt_gust_floor_guard"),
     }
     gust_rails = {
         "raw": ("thresholds", "gust_{level}kt_raw"),
@@ -57,6 +61,8 @@ def build_threshold_keys() -> dict[str, tuple[str, ...]]:
         "guarded_stacker": ("shadow_router_v1", "thresholds", "gust_{level}kt_guarded_stacker"),
         "threshold_guard": ("shadow_router_v1", "thresholds", "gust_{level}kt_threshold_guard"),
         "local_fallback_guard": ("shadow_router_v1", "thresholds", "gust_{level}kt_local_fallback_guard"),
+        "probability_event_guard": ("shadow_router_v1", "thresholds", "gust_{level}kt_probability_event_guard"),
+        "recall_floor_guard": ("shadow_router_v1", "thresholds", "gust_{level}kt_recall_floor_guard"),
     }
     for level in WIND_THRESHOLDS_KT:
         for rail, path_template in wind_rails.items():
@@ -78,6 +84,7 @@ SCORE_METRIC_KEYS = {
     "wind_guarded_stacker": "wind_shadow_guarded_stacker_v1_kt",
     "wind_threshold_guard": "wind_threshold_guard_v1_kt",
     "wind_high_event_guard": "wind_high_event_guard_v1_kt",
+    "wind_gust_floor_guard": "wind_gust_floor_guard_v1_kt",
     "gust_raw": "gust_raw_kt",
     "gust_champion": "gust_ml_kt",
     "gust_high": "gust_high_kt",
@@ -87,6 +94,8 @@ SCORE_METRIC_KEYS = {
     "gust_guarded_stacker": "gust_shadow_guarded_stacker_v1_kt",
     "gust_threshold_guard": "gust_threshold_guard_v1_kt",
     "gust_local_fallback_guard": "gust_local_fallback_guard_v1_kt",
+    "gust_probability_event_guard": "gust_probability_event_guard_v1_kt",
+    "gust_recall_floor_guard": "gust_recall_floor_guard_v1_kt",
 }
 
 
@@ -137,6 +146,9 @@ def score_path_for_case(case: dict[str, Any]) -> Path | None:
         return None
     case_root = Path(str(output_root))
     candidates = [
+        case_root / "hindcast_score_with_wind_gust_floor_guard_v1.json",
+        case_root / "hindcast_score_with_gust_recall_floor_guard_v1.json",
+        case_root / "hindcast_score_with_probability_event_guard_v1.json",
         case_root / "hindcast_score_with_local_fallback_guard_v1.json",
         case_root / "hindcast_score_with_threshold_guard_v1.json",
         case_root / "hindcast_score_with_guarded_stacker_v1.json",
@@ -161,11 +173,14 @@ def augment_shadow_from_score_file(case: dict[str, Any]) -> None:
             "wind_guarded_stacker": score_metric_ms(score, "wind_shadow_guarded_stacker_v1_kt"),
             "wind_threshold_guard": score_metric_ms(score, "wind_threshold_guard_v1_kt"),
             "wind_high_event_guard": score_metric_ms(score, "wind_high_event_guard_v1_kt"),
+            "wind_gust_floor_guard": score_metric_ms(score, "wind_gust_floor_guard_v1_kt"),
             "gust_router": score_metric_ms(score, "gust_shadow_router_v1_kt"),
             "gust_stacker": score_metric_ms(score, "gust_shadow_stacker_v1_kt"),
             "gust_guarded_stacker": score_metric_ms(score, "gust_shadow_guarded_stacker_v1_kt"),
             "gust_threshold_guard": score_metric_ms(score, "gust_threshold_guard_v1_kt"),
             "gust_local_fallback_guard": score_metric_ms(score, "gust_local_fallback_guard_v1_kt"),
+            "gust_probability_event_guard": score_metric_ms(score, "gust_probability_event_guard_v1_kt"),
+            "gust_recall_floor_guard": score_metric_ms(score, "gust_recall_floor_guard_v1_kt"),
         }
     )
     thresholds = shadow.setdefault("thresholds", {})
@@ -190,6 +205,9 @@ def augment_shadow_from_score_file(case: dict[str, Any]) -> None:
         thresholds[f"wind_{level}kt_high_event_guard"] = score_thresholds.get(
             f"wind_{level}kt_wind_high_event_guard_v1"
         ) or {}
+        thresholds[f"wind_{level}kt_gust_floor_guard"] = score_thresholds.get(
+            f"wind_{level}kt_wind_gust_floor_guard_v1"
+        ) or {}
     for level in GUST_THRESHOLDS_KT:
         thresholds[f"gust_{level}kt_router"] = score_thresholds.get(f"gust_{level}kt_shadow_router_v1") or {}
         thresholds[f"gust_{level}kt_stacker"] = score_thresholds.get(f"gust_{level}kt_shadow_stacker_v1") or {}
@@ -199,6 +217,12 @@ def augment_shadow_from_score_file(case: dict[str, Any]) -> None:
         thresholds[f"gust_{level}kt_threshold_guard"] = score_thresholds.get(f"gust_{level}kt_threshold_guard_v1") or {}
         thresholds[f"gust_{level}kt_local_fallback_guard"] = score_thresholds.get(
             f"gust_{level}kt_local_fallback_guard_v1"
+        ) or {}
+        thresholds[f"gust_{level}kt_probability_event_guard"] = score_thresholds.get(
+            f"gust_{level}kt_probability_event_guard_v1"
+        ) or {}
+        thresholds[f"gust_{level}kt_recall_floor_guard"] = score_thresholds.get(
+            f"gust_{level}kt_gust_recall_floor_guard_v1"
         ) or {}
 
 

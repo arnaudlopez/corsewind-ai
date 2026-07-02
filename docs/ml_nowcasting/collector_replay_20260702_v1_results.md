@@ -1690,3 +1690,155 @@ Interpretation:
   `lfvf/lfkj` risk persists or disappears across more fresh days;
 - do not convert these two spot risks into prod rules yet, because the current
   sample is too small and could overfit.
+
+## Gust Recall Floor Guard v1
+
+Added:
+
+- `scripts/ml_dataset/apply_gust_recall_floor_guard_v1.py`
+
+Hooked into:
+
+- `scripts/ml_dataset/run_collector_hindcast_suite.py`
+- `scripts/ml_dataset/score_live_hindcast_predictions.py`
+- `scripts/ml_dataset/summarize_shadow_suites.py`
+- `scripts/ml_dataset/review_shadow_promotion_candidates.py`
+- `scripts/ml_dataset/audit_shadow_candidate_impact.py`
+- `scripts/ml_dataset/audit_gust_threshold_event_heads.py`
+- `scripts/ml_dataset/run_shadow_suite_postprocess.sh`
+- `scripts/ml_dataset/run_shadow_multi_day_rollup.sh`
+
+Rule:
+
+```text
+start from probability_event_guard_v1 if available, else local_fallback_guard_v1
+if raw_gust >= 12 kt and candidate is in [9, 12) kt, floor to 12 kt
+if raw_gust >= 15 kt and candidate is in [12, 15) kt, floor to 15 kt
+```
+
+Rationale:
+
+- `local_fallback_guard_v1` improved RMSE and `>=20/25 kt` events, but lost
+  too much CSI at `>=12/15 kt` versus raw;
+- the recall floor keeps the conservative correction but restores low-threshold
+  recall when raw NWP already sees the event and the corrected value is only
+  slightly below the threshold;
+- it is inference-safe because it uses only raw NWP and current candidate
+  outputs.
+
+Current tiny-sample result on `144` joined rows:
+
+| Gust Rail | RMSE m/s | MAE m/s | Bias m/s | `>=12kt` CSI | `>=15kt` CSI | `>=20kt` CSI | `>=25kt` CSI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| raw | 1.786 | 1.476 | -0.099 | 0.794 | 0.511 | 0.375 | 1.000 |
+| champion | 2.026 | 1.514 | -1.088 | 0.582 | 0.405 | 0.667 | 0.000 |
+| local fallback | 1.437 | 1.155 | -0.335 | 0.687 | 0.405 | 0.667 | 1.000 |
+| probability event | 1.437 | 1.155 | -0.335 | 0.687 | 0.405 | 0.667 | 1.000 |
+| recall floor | 1.381 | 1.100 | -0.250 | 0.676 | 0.511 | 0.667 | 1.000 |
+
+Current application summary:
+
+- `collector_20260702T0245_unseen_v1`: `23` rows changed;
+- `collector_20260702T0345_unseen_v1`: `20` rows changed.
+
+Current promotion review:
+
+- `recall_floor_guard` is now the best gust RMSE candidate on the short rollup;
+- performance failures drop from `2` to `1`;
+- CSI miss total drops from `0.174` to `0.098`;
+- local risk flags remain `2`:
+  - `spot_id=lfkj`, worse than guarded stacker by `0.833 kt`;
+  - `spot_id=lfvf`, worse than raw by `0.265 kt`.
+
+Decision:
+
+```text
+do_not_promote
+```
+
+Why:
+
+- evidence is still too small: `1/2` days, `2/6` cases, `144/500` joined rows;
+- there are still local spot risks;
+- but this is now the best gust candidate to keep in shadow during the
+  full-day/multi-day campaign.
+
+## Wind Gust Floor Guard v1
+
+Added:
+
+- `scripts/ml_dataset/apply_wind_gust_floor_guard_v1.py`
+
+Hooked into:
+
+- `scripts/ml_dataset/run_collector_hindcast_suite.py`
+- `scripts/ml_dataset/score_live_hindcast_predictions.py`
+- `scripts/ml_dataset/summarize_shadow_suites.py`
+- `scripts/ml_dataset/review_shadow_promotion_candidates.py`
+- `scripts/ml_dataset/audit_shadow_candidate_impact.py`
+- `scripts/ml_dataset/audit_wind_threshold_event_heads.py`
+- `scripts/ml_dataset/run_shadow_suite_postprocess.sh`
+- `scripts/ml_dataset/run_shadow_multi_day_rollup.sh`
+
+Rule:
+
+```text
+start from wind_high_event_guard_v1
+if 8 kt <= wind < 12 kt
+and gust_recall_floor_guard_v1 >= 14 kt
+then wind = 12 kt
+```
+
+Rationale:
+
+- remaining wind misses are often not raw-wind-near-threshold cases;
+- they are low mean-wind predictions with a corrected gust signal already
+  indicating stronger flow;
+- the guard is intentionally limited to a `12 kt` floor, so it cannot by itself
+  create false `15/20 kt` events.
+
+Scoring correction:
+
+- `score_live_hindcast_predictions.py`;
+- `audit_wind_threshold_event_heads.py`;
+- `audit_gust_threshold_event_heads.py`;
+
+now use a tiny threshold epsilon (`1e-9`) so values equal to a business
+threshold after unit conversion, such as `11.999999999999998`, count as
+threshold hits. This avoids false misses caused only by floating-point
+rounding.
+
+Current tiny-sample result on `144` joined rows:
+
+| Wind Rail | RMSE m/s | MAE m/s | Bias m/s | `>=12kt` CSI | `>=15kt` CSI | `>=20kt` CSI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| raw | 1.558 | 1.273 | -1.136 | 0.333 | 0.667 | 0.000 |
+| champion | 1.381 | 1.000 | -0.712 |  |  |  |
+| high event guard | 1.154 | 0.849 | -0.482 | 0.433 | 0.636 | 1.000 |
+| gust floor guard | 1.079 | 0.786 | -0.381 | 0.639 | 0.636 | 1.000 |
+
+Current application summary:
+
+- `collector_20260702T0245_unseen_v1`: `15` rows changed;
+- `collector_20260702T0345_unseen_v1`: `11` rows changed.
+
+Current promotion review:
+
+- `gust_floor_guard` is now the best wind RMSE candidate on the short rollup;
+- local risk flags: `0`;
+- performance failures: `1`, still the same tiny `wind >=15kt` CSI miss versus
+  raw (`0.636` vs required `0.647`);
+- evidence gate is still not ready: `1/2` days, `2/6` cases, `144/500` joined
+  rows.
+
+Decision:
+
+```text
+do_not_promote
+```
+
+Interpretation:
+
+- this is the strongest recent wind RMSE improvement;
+- it does not solve every windsurf threshold issue, especially `>=15 kt`;
+- it should stay in shadow and be judged by the full-day/multi-day campaign.

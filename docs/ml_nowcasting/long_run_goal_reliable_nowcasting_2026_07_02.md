@@ -394,6 +394,162 @@ Decision:
 - avoid turning the `lfvf/lfkj` gust risks into production rules until they
   persist across more days.
 
+New candidate:
+
+- added `gust_recall_floor_guard_v1`;
+- it starts from the current guarded gust candidate and restores low-threshold
+  recall when raw NWP is above `12/15 kt` and the corrected prediction is only
+  slightly below the threshold;
+- current short-rollup result:
+  - RMSE improves from `1.437 m/s` to `1.381 m/s`;
+  - MAE improves from `1.155 m/s` to `1.100 m/s`;
+  - `gust >=15kt` CSI improves from `0.405` to `0.511`, matching raw;
+  - `gust >=20kt` CSI remains `0.667`;
+  - `gust >=25kt` CSI remains `1.000`;
+  - performance failures drop from `2` to `1`;
+  - local risk flags remain `2`, on `lfkj` and `lfvf`.
+
+Interpretation:
+
+- this is the strongest recent gust improvement because it improves both RMSE
+  and useful threshold behavior on the same rows;
+- it must remain shadow-only until fresh multi-day evidence confirms the gain;
+- next promotion decision should compare `gust_recall_floor_guard_v1` against
+  `local_fallback_guard_v1`, raw, and champion over at least the configured
+  evidence gate.
+
+Wind candidate update:
+
+- added `wind_gust_floor_guard_v1`;
+- it starts from `wind_high_event_guard_v1`;
+- it uses the improved gust rail as a conservative evidence signal:
+
+```text
+if 8 kt <= wind < 12 kt
+and gust_recall_floor_guard_v1 >= 14 kt
+then wind = 12 kt
+```
+
+Current short-rollup result on the same `144` rows:
+
+- wind RMSE improves from `1.154 m/s` to `1.079 m/s`;
+- wind MAE improves from `0.849 m/s` to `0.786 m/s`;
+- bias improves from `-0.482 m/s` to `-0.381 m/s`;
+- `wind >=12kt` CSI improves from `0.433` to `0.639`;
+- `wind >=15kt` CSI stays `0.636`, still slightly below the raw non-regression
+  gate;
+- `wind >=20kt` CSI stays `1.000`;
+- local risk flags are `0`.
+
+Interpretation:
+
+- this is currently the strongest wind candidate on the tiny unseen rollup;
+- it is inference-safe and deliberately limited to the first useful windsurf
+  threshold;
+- it should remain shadow-only until full-day and multi-day evidence proves the
+  gain is stable.
+
+Status tooling update:
+
+- updated `scripts/ml_dataset/shadow_validation_status.py`;
+- it now reports the multi-candidate promotion decision directly instead of
+  highlighting only the older router/guarded-stacker gates;
+- it includes candidate-impact local risk flags by target and candidate;
+- it now computes observation coverage wait time from the oldest tracked spot
+  to `target_end_utc`;
+- it now emits a `recommended_next_action` field so the watcher state is
+  immediately actionable;
+- added `scripts/ml_dataset/package_shadow_promotion.py`;
+- `scripts/ml_dataset/run_shadow_multi_day_rollup.sh` now writes
+  `promotion_package.json` and `promotion_package.md` after every rollup;
+- the package summarizes evidence readiness, current decision, best wind/gust
+  candidates, local risks, and the next operational action;
+- the package now adds a per-target readiness state, so we can distinguish:
+  - `waiting_for_evidence_only`;
+  - `waiting_for_evidence_with_local_risk`;
+  - `needs_performance_specialist`;
+  - `ready_to_promote`;
+- generated z2 status artifact:
+  `/srv/data/corsewind/ml_dataset/live_inference/shadow_status_latest.md`.
+- the status now reports per-spot observation lag versus the freshest spot, with
+  relative states:
+  - `fresh`;
+  - `slow_or_hourly`;
+  - `stale_candidate`;
+  - `missing`.
+
+Latest status:
+
+- health: `waiting_for_observations`, ok `True`;
+- recommended next action: `wait_for_observations`;
+- wait reason: oldest tracked spot is still `480.0` minutes before
+  `target_end_utc`;
+- `2026-07-02` full-day watcher running;
+- postprocess watcher running;
+- `shadow_campaign_20260703_3d_v1` running and waiting for `2026-07-03`;
+- current slower spots: `la_parata` and `lfvh`, both classified
+  `slow_or_hourly`, not `stale_candidate`;
+- promotion package:
+  `/srv/data/corsewind/ml_dataset/live_inference/shadow_rollups/shadow_rollup_latest/promotion_package.md`;
+- current wind readiness: `needs_threshold_margin_review`, because
+  `gust_floor_guard` still misses one windsurf threshold gate but the current
+  misses are close to the threshold;
+- current gust readiness: `waiting_for_evidence_with_local_risk`, because
+  `recall_floor_guard` has clean performance checks but still shows local risk
+  on `lfkj` and `lfvf`;
+- latest rollup remains `do_not_promote`.
+
+Threshold-margin update:
+
+- enriched `scripts/ml_dataset/audit_wind_threshold_event_heads.py`;
+- the wind threshold audit now reports false-positive and false-negative
+  margins around each business threshold;
+- added tolerance-aware CSI at `0.5/1/2 kt` around the observed threshold;
+- added the same tolerance-aware structure to
+  `scripts/ml_dataset/audit_gust_threshold_event_heads.py`;
+- added `scripts/ml_dataset/review_tolerant_threshold_gates.py`;
+- the tolerant gate review is generated by the multi-day rollup but does not
+  replace the strict promotion gate;
+- on the current `144` row rollup, the `wind >=15kt` blocker is not a missed
+  raw event:
+  - raw: `TP=6`, `FP=0`, `FN=3`, CSI `0.667`;
+  - `gust_floor_guard`: `TP=7`, `FP=2`, `FN=2`, CSI `0.636`;
+  - all `gust_floor_guard` errors at this threshold are within `2 kt` of the
+    threshold;
+  - with `2 kt` tolerance, `gust_floor_guard` reaches CSI `1.000` at
+    `wind >=15kt`;
+- package readiness for wind is now
+  `strict_threshold_failures_resolved_by_tolerance`, not a blind call for a
+  heavier specialist.
+
+Interpretation:
+
+- the wind candidate may be better for windsurf recall than the raw CSI gate
+  suggests;
+- before training a new model only to fix this tiny CSI miss, evaluate whether
+  near-threshold uncertainty/tolerance should be part of the gate;
+- a likely next gate improvement is to keep strict CSI for strong events, but add
+  tolerant CSI for near-threshold windsurf decisions;
+- do not lower the production gate yet: keep the strict gate as the promotion
+  authority until multi-day evidence confirms that tolerance resolves the same
+  kind of near-threshold miss repeatedly;
+- keep this as a hypothesis until the full-day and multi-day rollups confirm it.
+
+Coverage-cadence update:
+
+- added `coverage_cadence` to `scripts/ml_dataset/shadow_validation_status.py`;
+- deployed the status script to z2 and regenerated
+  `/srv/data/corsewind/ml_dataset/live_inference/shadow_status_latest.md`;
+- the diagnostic uses the last `24` watcher coverage entries, not only the last
+  payload;
+- current inferred cadence:
+  - `cap_corse`, `lfkf`, `lfkj`, `lfks`, `lfvf`, `lfvh`: `sub_hourly_like`;
+  - `la_parata`: `hourly_like`, median observed update cadence `60` minutes;
+- interpretation: `la_parata` is delayed relative to the freshest spots but
+  currently behaves like an hourly source, not a broken/stale source;
+- next promotion evidence should keep per-spot cadence in the status report so
+  we do not confuse expected hourly lag with a model/data failure.
+
 ## Things We Should Stop Doing
 
 - Do not chase RMSE `0.9` with blind model families.
