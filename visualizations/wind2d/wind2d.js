@@ -41,6 +41,7 @@ const INITIAL_ZOOM = 8;
 const KNOTS_PER_MPS = 1.943844492;
 const DEFAULT_SCALE_MAX_KT = 14;
 const SPEED_DATA_MODE = "speed_data";
+const GUST_DATA_MODE = "gust_data";
 const DEFAULT_SPEED_DATA_QUANTUM_KT = 0.1;
 const DISPLAY_TIME_ZONE = "Europe/Paris";
 const CFD_INFLUENCE_RADIUS_M = 260;
@@ -201,9 +202,11 @@ class AromeWindOverlay extends L.Layer {
   }
 
   setDisplayMode(mode) {
-    const nextMode = ["speed", "cloud_rain", "devente", "acceleration"].includes(mode) ? mode : "speed";
+    const nextMode = ["speed", "gust", "cloud_rain", "devente", "acceleration"].includes(mode) ? mode : "speed";
     if (nextMode === "cloud_rain") {
       this.displayMode = cloudRainAvailableForLead(this) ? "cloud_rain" : "speed";
+    } else if (nextMode === "gust") {
+      this.displayMode = gustAvailableForLead(this) ? "gust" : "speed";
     } else {
       this.displayMode = ["devente", "acceleration"].includes(nextMode) && !windNinjaModesAvailable(this) ? "speed" : nextMode;
     }
@@ -336,7 +339,9 @@ class AromeWindOverlay extends L.Layer {
 
   syncParticleVisibility() {
     if (!this.particleCanvas) return;
-    const hasWindLayer = (anyRawLayerVisible(this) || this.visibleLayers.windninja50) && this.displayMode === "speed";
+    // Flow particles stay useful under the gust overlay too (they show mean-wind flow).
+    const windMode = this.displayMode === "speed" || this.displayMode === "gust";
+    const hasWindLayer = (anyRawLayerVisible(this) || this.visibleLayers.windninja50) && windMode;
     this.particleCanvas.hidden = !this.particlesEnabled || !hasWindLayer;
   }
 
@@ -405,7 +410,7 @@ class AromeWindOverlay extends L.Layer {
     if (this.scaleRedrawTimer) window.clearTimeout(this.scaleRedrawTimer);
     if (this.motionShowTimer) window.clearTimeout(this.motionShowTimer);
     for (const state of Object.values(this.rasterTilesByModel || {})) {
-      if (state.activeLayer) map.removeLayer(state.activeLayer);
+      removeModelRasterLayers(this, state);
     }
     if (this.heatTileLayer) map.removeLayer(this.heatTileLayer);
     if (this.windNinjaCorsica50mTiles?.activeLayer) map.removeLayer(this.windNinjaCorsica50mTiles.activeLayer);
@@ -2426,17 +2431,29 @@ function buildRasterTileState(payload) {
   };
 }
 
-function rasterStepKeyForState(state, leadHour) {
-  const match = state?.steps?.find((step) => Number(step.lead_hour) === Number(leadHour));
+// Match manifest steps by valid time first: across two runs the same lead hour points at
+// different wall-clock times, so lead-only matching could show the previous run's tiles under a
+// wrong label during the window where the model JSON is newer than the tile manifest. Valid-time
+// matching stays correct through run transitions; lead matching remains the fallback.
+function rasterStepKeyForState(state, leadHour, validTimeUtc = null) {
+  const byTime = validTimeUtc ? state?.steps?.find((step) => step.valid_time_utc === validTimeUtc) : null;
+  const match = byTime || state?.steps?.find((step) => Number(step.lead_hour) === Number(leadHour));
   return match?.key || `h${String(Number(leadHour || 0)).padStart(2, "0")}`;
 }
 
+function activeValidTimeUtc(overlay, leadHour = overlay.activeLeadHour) {
+  const model = activeRawModel(overlay);
+  return forecastStepByLead(model, leadHour)?.valid_time_utc || null;
+}
+
 function rasterStepKey(overlay) {
-  return rasterStepKeyForState(overlay.rasterTiles, overlay.activeLeadHour);
+  return rasterStepKeyForState(overlay.rasterTiles, overlay.activeLeadHour, activeValidTimeUtc(overlay));
 }
 
 function rasterMode(overlay) {
   if (overlay.displayMode === "quality") return "quality";
+  // The gust display renders from gust_data tiles (client-side recolored, same LUT as speed).
+  if (overlay.displayMode === "gust") return GUST_DATA_MODE;
   return overlay.displayMode;
 }
 
@@ -2451,7 +2468,7 @@ function rasterStateAvailable(overlay, state) {
   if (overlay.map.getZoom() < rasterDisplayMinZoom(state)) return false;
   const mode = rasterMode(overlay);
   if (!state.modes.has(mode)) return false;
-  const key = rasterStepKeyForState(state, overlay.activeLeadHour);
+  const key = rasterStepKeyForState(state, overlay.activeLeadHour, activeValidTimeUtc(overlay));
   const step = state.steps.find((item) => item.key === key);
   if (!step) return false;
   return !step.modes || step.modes.includes(mode);
@@ -2461,7 +2478,7 @@ function rasterSpeedDataAvailable(overlay, state) {
   if (!state || rasterMode(overlay) !== "speed") return false;
   if (!state.dataUrlTemplate || !state.encodings?.[SPEED_DATA_MODE]) return false;
   if (!state.modes?.has(SPEED_DATA_MODE)) return false;
-  const key = rasterStepKeyForState(state, overlay.activeLeadHour);
+  const key = rasterStepKeyForState(state, overlay.activeLeadHour, activeValidTimeUtc(overlay));
   const step = state.steps?.find((item) => item.key === key);
   return Boolean(step && (!step.modes || step.modes.includes(SPEED_DATA_MODE)));
 }
@@ -2492,18 +2509,21 @@ function speedDataQuantumKt(state) {
 }
 
 function buildSpeedDataLut(scaleMaxKnots, renderAlpha, quantumKt) {
-  const lut = new Uint8ClampedArray(65536 * 4);
-  for (let q = 0; q < 65536; q += 1) {
+  // Intensity saturates at scaleMax, so every quantised value above maxQ shares the top colour —
+  // no need to fill all 65536 entries (~80× faster to build, felt while dragging the slider).
+  const maxQ = Math.max(1, Math.min(65535, Math.ceil(scaleMaxKnots / quantumKt) + 1));
+  const data = new Uint8ClampedArray((maxQ + 1) * 4);
+  for (let q = 0; q <= maxQ; q += 1) {
     const speedKnots = q * quantumKt;
     const intensity = Math.max(0, Math.min(1, speedKnots / scaleMaxKnots));
     const rgb = colorArray(intensity);
     const offset = q * 4;
-    lut[offset] = rgb[0];
-    lut[offset + 1] = rgb[1];
-    lut[offset + 2] = rgb[2];
-    lut[offset + 3] = Math.round(Math.min(220, 84 + Math.pow(intensity, 0.68) * 146) * renderAlpha);
+    data[offset] = rgb[0];
+    data[offset + 1] = rgb[1];
+    data[offset + 2] = rgb[2];
+    data[offset + 3] = Math.round(Math.min(220, 84 + Math.pow(intensity, 0.68) * 146) * renderAlpha);
   }
-  return lut;
+  return { data, maxQ };
 }
 
 function speedDataLutForLayer(layer, overlay, state) {
@@ -2519,27 +2539,40 @@ function speedDataLutForLayer(layer, overlay, state) {
 
 function recolorSpeedDataRecord(record, lut) {
   if (!record.sourceData || !record.ctx || !record.width || !record.height) return;
-  const output = record.ctx.createImageData(record.width, record.height);
+  // Reuse one ImageData per tile record across recolors (less GC churn while slider-dragging).
+  if (!record.output || record.output.width !== record.width || record.output.height !== record.height) {
+    record.output = record.ctx.createImageData(record.width, record.height);
+  }
   const source = record.sourceData;
-  const target = output.data;
+  const target = record.output.data;
+  const lutData = lut.data;
+  const maxQ = lut.maxQ;
   for (let offset = 0; offset < source.length; offset += 4) {
     const coverage = source[offset + 3];
     if (!coverage) {
       target[offset + 3] = 0;
       continue;
     }
-    const q = source[offset] | (source[offset + 1] << 8);
+    const q = Math.min(source[offset] | (source[offset + 1] << 8), maxQ);
     const lutOffset = q * 4;
-    target[offset] = lut[lutOffset];
-    target[offset + 1] = lut[lutOffset + 1];
-    target[offset + 2] = lut[lutOffset + 2];
-    target[offset + 3] = Math.round(lut[lutOffset + 3] * (coverage / 255));
+    target[offset] = lutData[lutOffset];
+    target[offset + 1] = lutData[lutOffset + 1];
+    target[offset + 2] = lutData[lutOffset + 2];
+    target[offset + 3] = Math.round(lutData[lutOffset + 3] * (coverage / 255));
   }
-  record.ctx.putImageData(output, 0, 0);
+  record.ctx.putImageData(record.output, 0, 0);
 }
 
-function createSpeedDataTileLayer(overlay, state, step, version) {
-  const dataTemplate = state.dataUrlTemplate || state.urlTemplate;
+function dataModeUrlTemplate(state, dataMode) {
+  return (
+    state.encodings?.[dataMode]?.urlTemplate ||
+    (dataMode === SPEED_DATA_MODE ? state.dataUrlTemplate : null) ||
+    state.urlTemplate
+  );
+}
+
+function createSpeedDataTileLayer(overlay, state, step, version, dataMode = SPEED_DATA_MODE) {
+  const dataTemplate = dataModeUrlTemplate(state, dataMode);
   const SpeedDataLayer = L.GridLayer.extend({
     createTile(coords, done) {
       const tileSize = this.getTileSize().x || 256;
@@ -2559,31 +2592,58 @@ function createSpeedDataTileLayer(overlay, state, step, version) {
         return tile;
       }
 
+      const paintFromSource = (source, sourceWidth, sourceHeight) => {
+        tile.width = sourceWidth || tileSize;
+        tile.height = sourceHeight || tileSize;
+        tile.style.width = `${tileSize}px`;
+        tile.style.height = `${tileSize}px`;
+        record.width = tile.width;
+        record.height = tile.height;
+        const decodeCanvas = document.createElement("canvas");
+        decodeCanvas.width = record.width;
+        decodeCanvas.height = record.height;
+        const decodeCtx = decodeCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
+        decodeCtx.drawImage(source, 0, 0);
+        record.sourceData = decodeCtx.getImageData(0, 0, record.width, record.height).data;
+        record.output = null;
+        record.ctx = tile.getContext("2d", { alpha: true });
+        recolorSpeedDataRecord(record, speedDataLutForLayer(this, overlay, state));
+      };
+
+      const url = modelRasterUrl(dataTemplate, step, dataMode, coords, version);
+      if (window.createImageBitmap && window.fetch) {
+        // createImageBitmap decodes the PNG off the main thread, unlike <img> + drawImage.
+        fetch(url)
+          .then((response) => {
+            if (!response.ok) throw new Error(`Speed data tile failed: ${url} (${response.status})`);
+            return response.blob();
+          })
+          .then((blob) => window.createImageBitmap(blob))
+          .then((bitmap) => {
+            try {
+              paintFromSource(bitmap, bitmap.width, bitmap.height);
+              bitmap.close?.();
+              done?.(null, tile);
+            } catch (error) {
+              done?.(error, tile);
+            }
+          })
+          .catch((error) => done?.(error, tile));
+        return tile;
+      }
+
       const image = new Image();
       image.decoding = "async";
       image.onload = () => {
         try {
-          tile.width = image.naturalWidth || tileSize;
-          tile.height = image.naturalHeight || tileSize;
-          tile.style.width = `${tileSize}px`;
-          tile.style.height = `${tileSize}px`;
-          record.width = tile.width;
-          record.height = tile.height;
-          const decodeCanvas = document.createElement("canvas");
-          decodeCanvas.width = record.width;
-          decodeCanvas.height = record.height;
-          const decodeCtx = decodeCanvas.getContext("2d", { alpha: true, willReadFrequently: true });
-          decodeCtx.drawImage(image, 0, 0);
-          record.sourceData = decodeCtx.getImageData(0, 0, record.width, record.height).data;
-          record.ctx = tile.getContext("2d", { alpha: true });
-          recolorSpeedDataRecord(record, speedDataLutForLayer(this, overlay, state));
+          paintFromSource(image, image.naturalWidth, image.naturalHeight);
           done?.(null, tile);
         } catch (error) {
           done?.(error, tile);
         }
       };
       image.onerror = () => done?.(new Error(`Speed data tile failed: ${image.src}`), tile);
-      image.src = modelRasterUrl(dataTemplate, step, SPEED_DATA_MODE, coords, version);
+      image.src = url;
       return tile;
     },
     recolorTiles() {
@@ -2630,43 +2690,129 @@ function createSpeedDataTileLayer(overlay, state, step, version) {
   return layer;
 }
 
+function removeModelRasterLayers(overlay, state) {
+  if (!state) return;
+  if (state.swapTimer) {
+    window.clearTimeout(state.swapTimer);
+    state.swapTimer = null;
+  }
+  if (overlay.map) {
+    if (state.retiringLayer) overlay.map.removeLayer(state.retiringLayer);
+    if (state.activeLayer) overlay.map.removeLayer(state.activeLayer);
+  }
+  state.retiringLayer = null;
+  state.activeLayer = null;
+  state.activeKey = null;
+}
+
+// Warm the browser cache for the previous/next timeline steps around the one being shown, so
+// scrubbing (and the timeline Play animation) swaps steps with zero network wait. Runs on idle,
+// viewport tiles only, deduped per state by full URL.
+function schedulePrefetchAdjacentSteps(overlay, state, currentStepKey, renderer, version) {
+  if (!overlay.map || !state?.steps?.length) return;
+  state.prefetchToken = (state.prefetchToken || 0) + 1;
+  const token = state.prefetchToken;
+  const run = () => {
+    state.prefetchIdle = null;
+    if (token !== state.prefetchToken || !overlay.map || state !== overlay.rasterTiles) return;
+    const index = state.steps.findIndex((item) => item.key === currentStepKey);
+    if (index < 0) return;
+    const manifestMode = renderer === "color" ? rasterMode(overlay) : renderer;
+    const template =
+      renderer === "color"
+        ? state.urlTemplate
+        : dataModeUrlTemplate(state, renderer);
+    const zoom = Math.max(
+      rasterDisplayMinZoom(state),
+      Math.min(Math.max(...state.zooms), Math.round(overlay.map.getZoom()))
+    );
+    state.prefetchCache = state.prefetchCache || new Map();
+    for (const neighbor of [state.steps[index + 1], state.steps[index - 1]]) {
+      if (!neighbor) continue;
+      if (neighbor.modes && !neighbor.modes.includes(manifestMode)) continue;
+      const resolved = modelRasterUrl(template, neighbor.key, manifestMode, { z: "{z}", x: "{x}", y: "{y}" }, version);
+      prefetchModelStepTiles(overlay.map, resolved, zoom, state.prefetchCache, 14);
+    }
+  };
+  if (state.prefetchIdle && window.cancelIdleCallback) window.cancelIdleCallback(state.prefetchIdle);
+  if (window.requestIdleCallback) {
+    state.prefetchIdle = window.requestIdleCallback(run, { timeout: 1600 });
+  } else {
+    window.setTimeout(run, 350);
+  }
+}
+
+function prefetchModelStepTiles(map, urlTemplate, zoom, cache, maxTiles = 14) {
+  const tileSize = 256;
+  const size = map.getSize();
+  const centerPoint = map.project(map.getCenter(), zoom);
+  const topLeft = centerPoint.subtract(size.divideBy(2));
+  const bottomRight = centerPoint.add(size.divideBy(2));
+  const worldTiles = 2 ** zoom;
+  const minX = Math.floor(topLeft.x / tileSize);
+  const maxX = Math.floor(bottomRight.x / tileSize);
+  const minY = Math.max(0, Math.floor(topLeft.y / tileSize));
+  const maxY = Math.min(worldTiles - 1, Math.floor(bottomRight.y / tileSize));
+  let fetched = 0;
+  for (let y = minY; y <= maxY && fetched < maxTiles; y += 1) {
+    for (let x = minX; x <= maxX && fetched < maxTiles; x += 1) {
+      const wrappedX = ((x % worldTiles) + worldTiles) % worldTiles;
+      const url = urlTemplate.replace("{z}", zoom).replace("{x}", wrappedX).replace("{y}", y);
+      if (cache.has(url)) continue;
+      cache.set(url, true);
+      if (cache.size > 600) cache.delete(cache.keys().next().value);
+      const image = new Image();
+      image.decoding = "async";
+      image.src = url;
+      fetched += 1;
+    }
+  }
+}
+
 function updateRasterTileLayer(overlay) {
   if (!overlay.map) return;
-  // Pin overlay.rasterTiles to the active model and tear down any other model's live layer.
+  // Pin overlay.rasterTiles to the active model and tear down any other model's live layers.
   const activeModel = rawModelKey(overlay);
   for (const [model, state] of Object.entries(overlay.rasterTilesByModel || {})) {
-    if (model !== activeModel && state.activeLayer) {
-      overlay.map.removeLayer(state.activeLayer);
-      state.activeLayer = null;
-      state.activeKey = null;
+    if (model !== activeModel && (state.activeLayer || state.retiringLayer)) {
+      removeModelRasterLayers(overlay, state);
     }
   }
   overlay.rasterTiles = overlay.rasterTilesByModel?.[activeModel] || null;
   if (!overlay.rasterTiles) return;
 
   if (!isRasterTileAvailable(overlay)) {
-    if (overlay.rasterTiles.activeLayer) {
-      overlay.map.removeLayer(overlay.rasterTiles.activeLayer);
-      overlay.rasterTiles.activeLayer = null;
-      overlay.rasterTiles.activeKey = null;
-    }
+    removeModelRasterLayers(overlay, overlay.rasterTiles);
     return;
   }
   const mode = rasterMode(overlay);
   const step = rasterStepKey(overlay);
   const useSpeedData = rasterSpeedDataAvailable(overlay, overlay.rasterTiles);
-  const renderer = useSpeedData ? SPEED_DATA_MODE : "color";
+  const dataMode = mode === GUST_DATA_MODE ? GUST_DATA_MODE : useSpeedData ? SPEED_DATA_MODE : null;
+  const renderer = dataMode || "color";
   const activeKey = `${step}:${mode}:${renderer}`;
-  if (overlay.rasterTiles.activeKey === activeKey && overlay.rasterTiles.activeLayer) return;
-  if (overlay.rasterTiles.activeLayer) overlay.map.removeLayer(overlay.rasterTiles.activeLayer);
+  const state = overlay.rasterTiles;
+  if (state.activeKey === activeKey && state.activeLayer) return;
+  if (state.swapTimer) {
+    window.clearTimeout(state.swapTimer);
+    state.swapTimer = null;
+  }
+  if (state.activeLayer) {
+    if (state.retiringLayer) {
+      // A hidden pending layer is already mid-swap: drop it, keep retiring the visible one.
+      overlay.map.removeLayer(state.activeLayer);
+    } else {
+      state.retiringLayer = state.activeLayer;
+    }
+    state.activeLayer = null;
+  }
   // Version tiles by the model run (stable while the run is unchanged) rather than the per-load
   // DATA_VERSION (Date.now()): combined with immutable Cache-Control on the server, the browser
   // then reuses cached tiles across reloads and pan-backs, and only refetches when a new run
   // publishes (runTimeUtc changes → new URL → new layer is rebuilt by the manifest poll).
-  const tileVersion = overlay.rasterTiles.runTimeUtc || DATA_VERSION;
-  const state = overlay.rasterTiles;
-  const layer = useSpeedData
-    ? createSpeedDataTileLayer(overlay, state, step, tileVersion)
+  const tileVersion = state.runTimeUtc || DATA_VERSION;
+  const layer = dataMode
+    ? createSpeedDataTileLayer(overlay, state, step, tileVersion, dataMode)
     : L.tileLayer(modelRasterUrl(state.urlTemplate, step, mode, { z: "{z}", x: "{x}", y: "{y}" }, tileVersion), {
         bounds: state.bounds || undefined,
         minZoom: rasterDisplayMinZoom(state),
@@ -2685,8 +2831,31 @@ function updateRasterTileLayer(overlay) {
     overlay.redrawHeatLayer();
   });
   state.activeLayer = layer.addTo(overlay.map);
-  overlay.rasterTiles.activeKey = activeKey;
-  overlay.rasterTiles.activeRenderer = renderer;
+  state.activeKey = activeKey;
+  state.activeRenderer = renderer;
+  if (state.retiringLayer) {
+    // Seamless step swap: keep the previous step's tiles visible (and the new layer hidden)
+    // until the new tiles have painted, so scrubbing the timeline never flashes the basemap.
+    const container = layer.getContainer?.();
+    if (container) container.style.visibility = "hidden";
+    const completeSwap = () => {
+      if (state.swapTimer) {
+        window.clearTimeout(state.swapTimer);
+        state.swapTimer = null;
+      }
+      if (state.activeLayer !== layer) return; // superseded by a newer swap
+      if (state.retiringLayer) {
+        overlay.map.removeLayer(state.retiringLayer);
+        state.retiringLayer = null;
+      }
+      const el = layer.getContainer?.();
+      if (el) el.style.visibility = "";
+    };
+    layer.once("load", completeSwap);
+    // Safety net: never keep two stacked layers if 'load' is delayed (e.g. offline tiles).
+    state.swapTimer = window.setTimeout(completeSwap, 2200);
+  }
+  schedulePrefetchAdjacentSteps(overlay, state, step, renderer, tileVersion);
 }
 
 function windNinjaCorsicaMode(overlay) {
@@ -3391,9 +3560,18 @@ function windNinjaModesAvailable(overlay) {
 function cloudRainAvailableForLead(overlay, leadHour = overlay.activeLeadHour) {
   const state = overlay.rasterTilesByModel?.[rawModelKey(overlay)];
   if (!state?.modes?.has("cloud_rain")) return false;
-  const key = rasterStepKeyForState(state, leadHour);
+  const key = rasterStepKeyForState(state, leadHour, activeValidTimeUtc(overlay, leadHour));
   const step = state.steps?.find((item) => item.key === key);
   return Boolean(step && (!step.modes || step.modes.includes("cloud_rain")));
+}
+
+function gustAvailableForLead(overlay, leadHour = overlay.activeLeadHour) {
+  const state = overlay.rasterTilesByModel?.[rawModelKey(overlay)];
+  if (!state?.modes?.has(GUST_DATA_MODE)) return false;
+  if (!state.encodings?.[GUST_DATA_MODE]) return false;
+  const key = rasterStepKeyForState(state, leadHour, activeValidTimeUtc(overlay, leadHour));
+  const step = state.steps?.find((item) => item.key === key);
+  return Boolean(step && (!step.modes || step.modes.includes(GUST_DATA_MODE)));
 }
 
 function applyPreferredForecastLayer(overlay) {
@@ -3465,7 +3643,7 @@ async function loadModelRasterManifests(overlay) {
       if (!state) return;
       if (rasterManifestSignature(state) === rasterManifestSignature(overlay.rasterTilesByModel[model])) return;
       const previous = overlay.rasterTilesByModel[model];
-      if (previous?.activeLayer && overlay.map) overlay.map.removeLayer(previous.activeLayer);
+      if (previous) removeModelRasterLayers(overlay, previous);
       overlay.rasterTilesByModel[model] = state;
       changed = true;
     })
@@ -3474,6 +3652,9 @@ async function loadModelRasterManifests(overlay) {
     overlay.refreshTileLayers();
     overlay.redrawHeatLayer();
     refreshCoverageStatus(overlay);
+    // Mode availability (Rafales / Nuages-pluie) comes from the manifests: refresh the tabs now
+    // instead of waiting for the next user interaction.
+    syncModeControls(overlay);
   }
   return changed;
 }
@@ -3739,6 +3920,13 @@ function bindScaleControl(overlay) {
     overlay.setScaleMaxKnots(maxKnots);
     updateScaleLabels(maxKnots);
   });
+  // Double-click resets the colour scale to the default max.
+  scaleInput.addEventListener("dblclick", () => {
+    scaleInput.value = String(DEFAULT_SCALE_MAX_KT);
+    overlay.setScaleMaxKnots(DEFAULT_SCALE_MAX_KT);
+    updateScaleLabels(DEFAULT_SCALE_MAX_KT);
+  });
+  scaleInput.title = "Double-clic : réinitialiser l'échelle";
 }
 
 function buildSessionLegend() {
@@ -3777,25 +3965,34 @@ function syncModeControls(overlay) {
   const tabs = [...document.querySelectorAll(".mode-tab")];
   const windNinjaAvailable = windNinjaModesAvailable(overlay);
   const cloudRainAvailable = cloudRainAvailableForLead(overlay);
+  const gustAvailable = gustAvailableForLead(overlay);
   if (overlay.displayMode === "cloud_rain" && !cloudRainAvailable) overlay.displayMode = "speed";
+  if (overlay.displayMode === "gust" && !gustAvailable) overlay.displayMode = "speed";
   if (["devente", "acceleration"].includes(overlay.displayMode) && !windNinjaAvailable) overlay.displayMode = "speed";
   tabs.forEach((tab) => {
     const mode = tab.dataset.mode || "speed";
     const disabled =
       mode === "speed"
         ? false
-        : mode === "cloud_rain"
-          ? !cloudRainAvailable
-          : !windNinjaAvailable;
+        : mode === "gust"
+          ? !gustAvailable
+          : mode === "cloud_rain"
+            ? !cloudRainAvailable
+            : !windNinjaAvailable;
     tab.disabled = disabled;
     tab.classList.toggle("disabled", disabled);
     tab.classList.toggle("active", mode === overlay.displayMode);
     tab.setAttribute("aria-disabled", String(disabled));
-    tab.title = disabled && mode === "cloud_rain"
-      ? "Nuages / pluie indisponible pour ce modèle ou ce run."
-      : mode === "cloud_rain"
-        ? "Afficher le voile nuageux prévisionnel et la pluie."
-        : "Afficher le vent.";
+    tab.title =
+      mode === "gust"
+        ? disabled
+          ? "Rafales indisponibles pour ce modèle (AROME-PI uniquement)."
+          : "Afficher les rafales prévues."
+        : disabled && mode === "cloud_rain"
+          ? "Nuages / pluie indisponible pour ce modèle ou ce run."
+          : mode === "cloud_rain"
+            ? "Afficher le voile nuageux prévisionnel et la pluie."
+            : "Afficher le vent.";
   });
 }
 
@@ -3988,6 +4185,7 @@ function updateLegendTitle(mode) {
   if (surfaceLegend) surfaceLegend.hidden = true;
   const labels = {
     speed: "Vitesse du vent",
+    gust: "Rafales",
     cloud_rain: "Nuages / pluie",
     devente: "Dévente WindNinja",
     acceleration: "Accélération WindNinja",
@@ -4163,6 +4361,49 @@ function buildSpotButtons(map, overlay) {
   }
 }
 
+// Timeline Play: animate through the active model's échéances (Windy-style). Cheap thanks to
+// data tiles + LUT recolor, adjacent-step prefetch and the seamless layer swap.
+const timelinePlay = { active: false, timer: null };
+
+function stopTimelinePlay() {
+  timelinePlay.active = false;
+  if (timelinePlay.timer) {
+    window.clearTimeout(timelinePlay.timer);
+    timelinePlay.timer = null;
+  }
+  const button = document.querySelector(".forecast-play");
+  if (button) {
+    button.classList.remove("active");
+    button.textContent = "▶";
+    button.title = "Animer les échéances";
+  }
+}
+
+function advanceTimelineStep(payload, overlay) {
+  const model = activeRawModel(overlay) || payload;
+  const steps = model.forecast_steps || [];
+  if (!steps.length) return;
+  const index = steps.findIndex((step) => Number(step.lead_hour) === Number(overlay.activeLeadHour));
+  const next = steps[(index + 1) % steps.length] || steps[0];
+  const leadHour = Number(next.lead_hour);
+  const aromeIndex = forecastIndexByLead(payload, leadHour);
+  overlay.setStep(aromeIndex >= 0 ? aromeIndex : overlay.stepIndex, leadHour);
+  buildForecastButtons(payload, overlay);
+  syncLayerControls(overlay);
+  updateReadout(payload, overlay);
+}
+
+function startTimelinePlay(payload, overlay) {
+  if (timelinePlay.active) return;
+  timelinePlay.active = true;
+  const tick = () => {
+    if (!timelinePlay.active) return;
+    if (!document.hidden) advanceTimelineStep(payload, overlay);
+    timelinePlay.timer = window.setTimeout(tick, 900);
+  };
+  timelinePlay.timer = window.setTimeout(tick, 250);
+}
+
 function buildForecastButtons(payload, overlay) {
   const strip = document.querySelector(".forecast-strip");
   strip.innerHTML = "";
@@ -4179,6 +4420,8 @@ function buildForecastButtons(payload, overlay) {
   const daySteps = activeDay.steps || steps;
   const selectStep = (step) => {
     if (!step) return;
+    // A manual selection always interrupts the timeline animation.
+    stopTimelinePlay();
     const leadHour = Number(step.lead_hour);
     const aromeIndex = forecastIndexByLead(payload, leadHour);
     overlay.setStep(aromeIndex >= 0 ? aromeIndex : overlay.stepIndex, leadHour);
@@ -4223,6 +4466,24 @@ function buildForecastButtons(payload, overlay) {
     const detail = document.createElement("div");
     detail.className = "forecast-selection";
     detail.setAttribute("aria-live", "polite");
+    const play = document.createElement("button");
+    play.className = `forecast-play${timelinePlay.active ? " active" : ""}`;
+    play.type = "button";
+    play.textContent = timelinePlay.active ? "⏸" : "▶";
+    play.title = timelinePlay.active ? "Arrêter l'animation" : "Animer les échéances";
+    play.setAttribute("aria-label", play.title);
+    play.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (timelinePlay.active) {
+        stopTimelinePlay();
+      } else {
+        startTimelinePlay(payload, overlay);
+        play.classList.add("active");
+        play.textContent = "⏸";
+        play.title = "Arrêter l'animation";
+      }
+    });
+    detail.appendChild(play);
     const modelLabel = document.createElement("span");
     modelLabel.className = "forecast-selection-model";
     modelLabel.textContent = modelShortLabel;
@@ -4807,6 +5068,32 @@ async function main() {
     updateWhenZooming: true,
     updateInterval: 80,
   }).addTo(map);
+
+  // Darken the satellite basemap with a translucent quad between the tile pane (200) and the
+  // wind overlay panes (420+) instead of a CSS filter on .leaflet-tile-pane: a filter forces the
+  // GPU to re-run a colour-matrix pass over the whole pane on every composited frame of a
+  // pan/zoom, which costs real frame time on mobile. A plain alpha quad is nearly free.
+  // Escape hatch: ?dim=css restores the previous filter for visual comparison.
+  if (new URLSearchParams(window.location.search).get("dim") === "css") {
+    map.getPane("tilePane").style.filter = "brightness(0.64) saturate(0.94) contrast(1.1)";
+  } else {
+    const dimPane = map.createPane("basemapDim");
+    dimPane.style.zIndex = 250;
+    dimPane.style.pointerEvents = "none";
+    L.rectangle(
+      [
+        [-85, -540],
+        [85, 540],
+      ],
+      {
+        renderer: L.svg({ pane: "basemapDim" }),
+        stroke: false,
+        fillColor: "#020617",
+        fillOpacity: 0.4,
+        interactive: false,
+      }
+    ).addTo(map);
+  }
 
   const zoomControl = L.control.zoom({ position: "topleft" }).addTo(map);
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>CorseWind Wind Map</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="./wind2d.css?v=20260622-atomic-raster-1" />
+    <link rel="stylesheet" href="./wind2d.css?v=20260702-ui-layout-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -90,6 +90,7 @@
           </div>
           <div class="mode-tabs" aria-label="Couche météo">
             <button class="mode-tab active" data-mode="speed" type="button" aria-disabled="false">Vent</button>
+            <button class="mode-tab disabled" data-mode="gust" type="button" disabled aria-disabled="true">Rafales</button>
             <button class="mode-tab disabled" data-mode="cloud_rain" type="button" disabled aria-disabled="true">Nuages / pluie</button>
           </div>
           <button class="particle-toggle active" id="particle-toggle" type="button" aria-pressed="true" title="Afficher le sens du flux d'air">
@@ -146,6 +147,6 @@
     </main>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script type="module" src="./wind2d.js?v=20260622-atomic-raster-1"></script>
+    <script type="module" src="./wind2d.js?v=20260702-ui-layout-1"></script>
   </body>
 </html>

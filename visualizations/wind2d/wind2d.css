@@ -46,9 +46,9 @@ body {
   background: #0f172a;
 }
 
-.leaflet-tile-pane {
-  filter: brightness(0.64) saturate(0.94) contrast(1.1);
-}
+/* The basemap darkening is now a translucent quad in the "basemapDim" pane (see wind2d.js):
+   a CSS filter here forced a GPU colour-matrix pass over the whole tile pane on every frame
+   of a pan/zoom, which cost real frame time on mobile. Restore with ?dim=css if needed. */
 
 .leaflet-control-attribution {
   display: none;
@@ -155,7 +155,8 @@ body {
 .map-layer-rail {
   position: absolute;
   left: 16px;
-  top: 156px;
+  /* Below the zoom control (106px + ~70px tall + gap) so the "−" button is never covered. */
+  top: 186px;
   z-index: 810;
   display: grid;
   gap: 7px;
@@ -209,7 +210,9 @@ body {
 .topbar {
   top: 16px;
   left: 16px;
-  right: 16px;
+  /* Leave room for the floating "Carte" toggle (right: 16px, ~74px wide) so the last status
+     box is never hidden underneath it. */
+  right: 106px;
   min-height: 76px;
   display: grid;
   grid-template-columns: minmax(190px, 0.62fr) minmax(560px, 2fr);
@@ -278,10 +281,32 @@ body {
 
 .legend-panel {
   left: 16px;
-  bottom: 18px;
+  /* Above the bottom timeline (~95px tall + 18px inset) so the two never stack. */
+  bottom: 132px;
   width: min(330px, calc(100vw - 32px));
   padding: 13px 14px;
   border-radius: 8px;
+  /* When the settings are expanded the panel scrolls internally instead of growing over the
+     layer rail / topbar on short screens. */
+  max-height: max(240px, calc(100vh - 330px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* The settings block is collapsed by default at every size (not just mobile); the "Réglages"
+   button toggles it. This keeps the always-visible legend ~90px tall so it cannot collide with
+   the timeline, the layer rail or the map. */
+.legend-panel.mobile-collapsed .legend-expanded {
+  display: none;
+}
+
+/* While the settings drawer is open it may extend over the layer rail on short screens: raise
+   it above the rail (z 810) so it reads as a drawer instead of controls floating on top of it. */
+.legend-panel:not(.mobile-collapsed) {
+  z-index: 830;
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.45);
 }
 
 .legend-heading {
@@ -302,7 +327,9 @@ body {
 }
 
 .legend-expand-toggle {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   height: 28px;
   padding: 0 10px;
@@ -734,6 +761,31 @@ body {
   white-space: nowrap;
 }
 
+.forecast-play {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 21px;
+  padding: 0;
+  border: 1px solid rgba(103, 232, 249, 0.34);
+  border-radius: 6px;
+  background: rgba(103, 232, 249, 0.08);
+  color: var(--cyan);
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.forecast-play:hover,
+.forecast-play:focus {
+  background: rgba(103, 232, 249, 0.22);
+}
+
+.forecast-play.active {
+  color: #06111f;
+  background: var(--cyan);
+  border-color: rgba(103, 232, 249, 0.9);
+}
+
 .forecast-selection strong {
   color: var(--text);
   font-size: 0.78rem;
@@ -779,7 +831,9 @@ body {
 
 .spot-strip {
   left: 50%;
-  bottom: 18px;
+  /* Above the bottom timeline: both are centered and bottom-anchored, so a shared 18px inset
+     would stack them on top of each other whenever spots are visible. */
+  bottom: 132px;
   transform: translateX(-50%);
   display: flex;
   max-width: min(520px, max(260px, calc(100vw - 380px)));
@@ -1084,7 +1138,8 @@ body {
 
 @media (max-width: 780px) {
   .leaflet-left .leaflet-control-zoom {
-    margin-top: 94px;
+    /* The stacked topbar is ~120px tall at this width: keep the zoom control clear of it. */
+    margin-top: 156px;
     margin-left: 10px;
   }
 
@@ -1107,7 +1162,8 @@ body {
 
   .map-layer-rail {
     left: 10px;
-    top: 142px;
+    /* Below the relocated zoom control (156px + ~70px + gap). */
+    top: 236px;
     gap: 6px;
     padding: 5px;
   }
@@ -1126,6 +1182,7 @@ body {
     grid-template-columns: 1fr;
     gap: 8px;
     min-height: 0;
+    right: 88px;
   }
 
   .status-grid {
@@ -1161,7 +1218,8 @@ body {
   }
 
   .map-layer-rail {
-    top: 134px;
+    /* Below the compact zoom control (62px + ~70px). */
+    top: 140px;
   }
 
   .app-shell.ui-hidden .leaflet-left .leaflet-control-zoom {
@@ -1201,7 +1259,8 @@ body {
 
   .legend-panel {
     left: 10px;
-    bottom: 72px;
+    /* The mobile timeline (bottom: 8px) is ~90px tall: keep the legend fully above it. */
+    bottom: 106px;
     width: calc(100vw - 20px);
     max-height: min(50vh, 390px);
     overflow-y: auto;
