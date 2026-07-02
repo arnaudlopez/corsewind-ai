@@ -365,6 +365,35 @@ Update:
 - this is promising but explicitly not promotion evidence because the sample is
   still only `144` rows.
 
+Latest update:
+
+- added `shadow_candidate_impact_audit_v1` so local-risk checks are now tied to
+  the actual best candidate:
+  - wind `high_event_guard`;
+  - gust `local_fallback_guard`;
+- re-ran the latest z2 rollup successfully;
+- current evidence remains insufficient: `1/2` days, `2/6` cases, `2/6`
+  shadow cases, `144/500` joined rows;
+- current best wind candidate is `high_event_guard`:
+  - RMSE `1.154 m/s`;
+  - MAE `0.849 m/s`;
+  - gain vs raw `0.404 m/s`;
+  - gain vs champion `0.227 m/s`;
+  - local risk flags `0`;
+- current best gust candidate is `local_fallback_guard`:
+  - RMSE `1.437 m/s`;
+  - MAE `1.155 m/s`;
+  - gain vs raw `0.349 m/s`;
+  - gain vs champion `0.588 m/s`;
+  - local risk flags `2`, concentrated on `spot_id=lfvf` and `spot_id=lfkj`.
+
+Decision:
+
+- still `do_not_promote`;
+- continue full-day/multi-day shadow evidence collection;
+- avoid turning the `lfvf/lfkj` gust risks into production rules until they
+  persist across more days.
+
 ## Things We Should Stop Doing
 
 - Do not chase RMSE `0.9` with blind model families.
