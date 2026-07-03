@@ -203,6 +203,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         str(score_json),
         "--output-scored-parquet",
         str(scored_rows),
+        "--registry",
+        str(args.registry),
+        "--score-track",
+        args.score_track,
         "--target-start-utc",
         iso_z(issue_time + args.step_minutes_delta),
         "--target-end-utc",
@@ -255,6 +259,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--spot-static-features", type=Path, default=Path("configs/ml_spot_static_features.json"))
     parser.add_argument("--observations-jsonl", action="append", default=[], required=True)
     parser.add_argument("--score-spots")
+    parser.add_argument(
+        "--score-track",
+        choices=["official", "product", "context", "all", "legacy_default"],
+        default="official",
+    )
     parser.add_argument("--lead-minutes", default=DEFAULT_LEADS)
     parser.add_argument("--step-minutes", type=int, default=15)
     parser.add_argument("--read-margin-days-before", type=int, default=5)

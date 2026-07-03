@@ -209,13 +209,20 @@ def write_jsonl_by_valid_day(output_root: Path, source: str, rows: list[dict[str
     written: dict[str, int] = {}
     for path, path_rows in by_path.items():
         path.parent.mkdir(parents=True, exist_ok=True)
+        existing_rows = []
+        if path.exists():
+            existing_rows = [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
         deduped = {
             (row.get("source"), row.get("run_time_utc"), row.get("valid_time_utc"), row.get("spot_id")): row
-            for row in path_rows
+            for row in [*existing_rows, *path_rows]
         }
         ordered = sorted(
             deduped.values(),
-            key=lambda row: (row.get("valid_time_utc") or "", row.get("spot_id") or ""),
+            key=lambda row: (row.get("run_time_utc") or "", row.get("valid_time_utc") or "", row.get("spot_id") or ""),
         )
         tmp = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
         tmp.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in ordered), encoding="utf-8")

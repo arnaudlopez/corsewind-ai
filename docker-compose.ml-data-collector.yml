@@ -1,0 +1,60 @@
+services:
+  ml-data-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml-dataset-runner
+    image: corsewind-ml-dataset-runner:latest
+    pull_policy: build
+    container_name: corsewind-ml-data-collector
+    init: true
+    restart: unless-stopped
+    user: "${ML_DATA_COLLECTOR_UID:-1000}:${ML_DATA_COLLECTOR_GID:-1000}"
+    stop_signal: SIGTERM
+    stop_grace_period: 10m
+    working_dir: /work
+    environment:
+      HOME: /home/collector
+      PYTHONUNBUFFERED: "1"
+      ML_DATASET_ROOT: /srv/data/corsewind/ml_dataset
+      ML_DATA_COLLECTOR_INTERVAL_SEC: ${ML_DATA_COLLECTOR_INTERVAL_SEC:-300}
+      METEOFRANCE_API_KEY: ${METEOFRANCE_API_KEY:-}
+      COPERNICUSMARINE_SERVICE_USERNAME: ${COPERNICUSMARINE_SERVICE_USERNAME:-}
+      COPERNICUSMARINE_SERVICE_PASSWORD: ${COPERNICUSMARINE_SERVICE_PASSWORD:-}
+      EUMETSAT_CONSUMER_KEY: ${EUMETSAT_CONSUMER_KEY:-}
+      EUMETSAT_CONSUMER_SECRET: ${EUMETSAT_CONSUMER_SECRET:-}
+      BEACON_LIVE_WEATHER_STATE: ${BEACON_LIVE_WEATHER_STATE:-}
+      BEACON_LIVE_WEATHER_STATE_SSH: ${BEACON_LIVE_WEATHER_STATE_SSH:-}
+      BEACON_LIVE_WEATHER_STATE_SSH_IDENTITY_FILE: ${BEACON_LIVE_WEATHER_STATE_SSH_IDENTITY_FILE:-/home/collector/.ssh/corsewind_home101_ed25519}
+      BEACON_LIVE_WEATHER_STATE_SSH_TIMEOUT_SEC: ${BEACON_LIVE_WEATHER_STATE_SSH_TIMEOUT_SEC:-30}
+    volumes:
+      - ./:/work:ro
+      - ${ML_DATASET_HOST_ROOT:-/srv/data/corsewind/ml_dataset}:/srv/data/corsewind/ml_dataset
+      - ${CORSEWIND_SSH_HOST_ROOT:-/home/z2/.ssh}:/home/collector/.ssh:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "scripts/ml_dataset/check_data_collector_health.py",
+          "--status-file",
+          "/srv/data/corsewind/ml_dataset/collector_loop_status.json",
+          "--max-status-age-sec",
+          "1800",
+          "--require-last-cycle-ok"
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+    command:
+      - python
+      - scripts/ml_dataset/run_data_collector_loop.py
+      - --interval-sec
+      - ${ML_DATA_COLLECTOR_INTERVAL_SEC:-300}
+      - --
+      - --mode
+      - official
+      - --ml-root
+      - /srv/data/corsewind/ml_dataset
+      - --env-file
+      - /work/.env

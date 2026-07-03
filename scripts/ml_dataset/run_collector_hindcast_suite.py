@@ -114,6 +114,12 @@ def run_command(cmd: list[str], *, cwd: Path, dry_run: bool) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
+def add_score_filter_args(cmd: list[str], args: argparse.Namespace) -> None:
+    cmd.extend(["--registry", str(args.registry), "--score-track", args.score_track])
+    if args.score_spots:
+        cmd.extend(["--spots", args.score_spots])
+
+
 def build_hindcast_command(
     *,
     args: argparse.Namespace,
@@ -146,8 +152,8 @@ def build_hindcast_command(
         str(args.context_registry),
         "--spot-static-features",
         str(args.spot_static_features),
-        "--score-spots",
-        args.score_spots,
+        "--score-track",
+        args.score_track,
         "--python",
         args.python,
         "--lead-minutes",
@@ -161,6 +167,8 @@ def build_hindcast_command(
         "--context-station-max-age-minutes",
         str(args.context_station_max_age_minutes),
     ]
+    if args.score_spots:
+        cmd.extend(["--score-spots", args.score_spots])
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     if args.with_foundation:
@@ -217,13 +225,12 @@ def build_shadow_score_command(
         str(case_root / "hindcast_score_with_shadow_router_v1.json"),
         "--output-scored-parquet",
         str(case_root / "hindcast_scored_rows_with_shadow_router_v1.parquet"),
-        "--spots",
-        args.score_spots,
         "--target-start-utc",
         iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
         "--target-end-utc",
         case["target_end_utc"],
     ]
+    add_score_filter_args(cmd, args)
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     return cmd
@@ -258,13 +265,12 @@ def build_threshold_guard_score_command(
         str(case_root / "hindcast_score_with_threshold_guard_v1.json"),
         "--output-scored-parquet",
         str(case_root / "hindcast_scored_rows_with_threshold_guard_v1.parquet"),
-        "--spots",
-        args.score_spots,
         "--target-start-utc",
         iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
         "--target-end-utc",
         case["target_end_utc"],
     ]
+    add_score_filter_args(cmd, args)
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     return cmd
@@ -314,13 +320,12 @@ def build_local_fallback_guard_score_command(
         str(case_root / "hindcast_score_with_local_fallback_guard_v1.json"),
         "--output-scored-parquet",
         str(case_root / "hindcast_scored_rows_with_local_fallback_guard_v1.parquet"),
-        "--spots",
-        args.score_spots,
         "--target-start-utc",
         iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
         "--target-end-utc",
         case["target_end_utc"],
     ]
+    add_score_filter_args(cmd, args)
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     return cmd
@@ -355,13 +360,12 @@ def build_probability_event_guard_score_command(
         str(case_root / "hindcast_score_with_probability_event_guard_v1.json"),
         "--output-scored-parquet",
         str(case_root / "hindcast_scored_rows_with_probability_event_guard_v1.parquet"),
-        "--spots",
-        args.score_spots,
         "--target-start-utc",
         iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
         "--target-end-utc",
         case["target_end_utc"],
     ]
+    add_score_filter_args(cmd, args)
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     return cmd
@@ -396,13 +400,12 @@ def build_gust_recall_floor_guard_score_command(
         str(case_root / "hindcast_score_with_gust_recall_floor_guard_v1.json"),
         "--output-scored-parquet",
         str(case_root / "hindcast_scored_rows_with_gust_recall_floor_guard_v1.parquet"),
-        "--spots",
-        args.score_spots,
         "--target-start-utc",
         iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
         "--target-end-utc",
         case["target_end_utc"],
     ]
+    add_score_filter_args(cmd, args)
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     return cmd
@@ -437,13 +440,12 @@ def build_wind_gust_floor_guard_score_command(
         str(case_root / "hindcast_score_with_wind_gust_floor_guard_v1.json"),
         "--output-scored-parquet",
         str(case_root / "hindcast_scored_rows_with_wind_gust_floor_guard_v1.parquet"),
-        "--spots",
-        args.score_spots,
         "--target-start-utc",
         iso_z(parse_time(case["issue_time_utc"]) + timedelta(minutes=15)),
         "--target-end-utc",
         case["target_end_utc"],
     ]
+    add_score_filter_args(cmd, args)
     for path in observation_paths:
         cmd.extend(["--observations-jsonl", str(path)])
     return cmd
@@ -1001,6 +1003,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "ml_root": str(args.ml_root),
         "output_root": str(output_root),
         "source": args.source,
+        "score_track": args.score_track,
         "score_spots": args.score_spots,
         "shadow_artifact": None if args.shadow_artifact is None else str(args.shadow_artifact),
         "cases": case_outputs,
@@ -1023,7 +1026,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--registry", type=Path, default=Path("configs/ml_spots.json"))
     parser.add_argument("--context-registry", type=Path, default=Path("configs/ml_context_stations.json"))
     parser.add_argument("--spot-static-features", type=Path, default=Path("configs/ml_spot_static_features.json"))
-    parser.add_argument("--score-spots", default=DEFAULT_SCORE_SPOTS)
+    parser.add_argument("--score-spots")
+    parser.add_argument(
+        "--score-track",
+        choices=["official", "product", "context", "all", "legacy_default"],
+        default="official",
+    )
     parser.add_argument("--lead-minutes", default="15,30,45,60,75,90,105,120,135,150,165,180,195,210,225,240,255,270,285,300,315,330,345,360,375,390,405,420,435,450,465,480,495,510,525,540,555,570,585,600,615")
     parser.add_argument("--step-minutes", type=int, default=15)
     parser.add_argument("--read-margin-days-before", type=int, default=5)

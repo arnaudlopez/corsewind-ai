@@ -32,6 +32,10 @@ NEXT_SPECIALIST_PLAN_MARKDOWN="${NEXT_SPECIALIST_PLAN_MARKDOWN:-$OUTPUT_ROOT/nex
 RUN_ROLLUP="${RUN_ROLLUP:-1}"
 ROLLUP_ID="${ROLLUP_ID:-shadow_rollup_latest}"
 ROLLUP_MIN_COMPLETE_SUITES="${ROLLUP_MIN_COMPLETE_SUITES:-1}"
+WIND_MIN_VARIANCE_RATIO="${WIND_MIN_VARIANCE_RATIO:-0.0}"
+GUST_MIN_VARIANCE_RATIO="${GUST_MIN_VARIANCE_RATIO:-0.85}"
+GUST_MIN_WINDY_VARIANCE_RATIO="${GUST_MIN_WINDY_VARIANCE_RATIO:-0.80}"
+MAX_FALSE_ALARM_RATIO_REGRESSION="${MAX_FALSE_ALARM_RATIO_REGRESSION:-0.03}"
 
 cd "$REPO_ROOT"
 
@@ -53,6 +57,8 @@ done
   --aggregate-json "$AGGREGATE_JSON" \
   --target wind \
   --candidate router \
+  --min-variance-ratio "$WIND_MIN_VARIANCE_RATIO" \
+  --max-false-alarm-ratio-regression "$MAX_FALSE_ALARM_RATIO_REGRESSION" \
   --output-json "$WIND_GATE_JSON" \
   --output-markdown "$WIND_GATE_MARKDOWN" \
   --no-fail-on-reject
@@ -61,12 +67,20 @@ done
   --aggregate-json "$AGGREGATE_JSON" \
   --target gust \
   --candidate guarded_stacker \
+  --min-variance-ratio "$GUST_MIN_VARIANCE_RATIO" \
+  --require-variance-regime \
+  --variance-regime "actual_gust/>=25kt" \
+  --min-regime-variance-ratio "$GUST_MIN_WINDY_VARIANCE_RATIO" \
+  --max-false-alarm-ratio-regression "$MAX_FALSE_ALARM_RATIO_REGRESSION" \
   --output-json "$GUST_GATE_JSON" \
   --output-markdown "$GUST_GATE_MARKDOWN" \
   --no-fail-on-reject
 
 "$PY_ML" scripts/ml_dataset/review_shadow_promotion_candidates.py \
   --aggregate-json "$AGGREGATE_JSON" \
+  --wind-min-variance-ratio "$WIND_MIN_VARIANCE_RATIO" \
+  --gust-min-variance-ratio "$GUST_MIN_VARIANCE_RATIO" \
+  --max-false-alarm-ratio-regression "$MAX_FALSE_ALARM_RATIO_REGRESSION" \
   --output-json "$PROMOTION_REVIEW_JSON" \
   --output-markdown "$PROMOTION_REVIEW_MARKDOWN"
 

@@ -1,0 +1,99 @@
+services:
+  ml-data-collector:
+    image: corsewind-ml-dataset-runner:latest
+    pull_policy: never
+    container_name: corsewind-ml-data-collector
+    init: true
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/fuse:/dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    stop_signal: SIGTERM
+    stop_grace_period: 10m
+    working_dir: /work
+    environment:
+      HOME: /home/collector
+      PYTHONUNBUFFERED: "1"
+      ML_DATASET_ROOT: /srv/data/corsewind/ml_dataset
+      ML_DATA_COLLECTOR_INTERVAL_SEC: ${ML_DATA_COLLECTOR_INTERVAL_SEC:-300}
+      METEOFRANCE_API_KEY: ${METEOFRANCE_API_KEY:-}
+      COPERNICUSMARINE_SERVICE_USERNAME: ${COPERNICUSMARINE_SERVICE_USERNAME:-}
+      COPERNICUSMARINE_SERVICE_PASSWORD: ${COPERNICUSMARINE_SERVICE_PASSWORD:-}
+      EUMETSAT_CONSUMER_KEY: ${EUMETSAT_CONSUMER_KEY:-}
+      EUMETSAT_CONSUMER_SECRET: ${EUMETSAT_CONSUMER_SECRET:-}
+      BEACON_LIVE_WEATHER_STATE: /beacon-live/weather-state.json
+      Z2_DATASET_SSH: ${Z2_DATASET_SSH:-z2@192.168.1.99:/srv/data/corsewind/ml_dataset}
+      Z2_DATASET_SSH_IDENTITY_FILE: ${Z2_DATASET_SSH_IDENTITY_FILE:-/home/collector/.ssh/corsewind_z2_ed25519}
+      ML_REMOTE_MODEL_CONTAINER_SSH: ${ML_REMOTE_MODEL_CONTAINER_SSH:-home@192.168.1.101:docker://corsewind-forecast-engine}
+      ML_REMOTE_MODEL_SSH_IDENTITY_FILE: ${ML_REMOTE_MODEL_SSH_IDENTITY_FILE:-/home/collector/.ssh/claude_key}
+    volumes:
+      - ${BEACON_LIVE_WEATHER_STATE_HOST_PATH:-/var/lib/docker/volumes/beacon-live_weather-data/_data/weather-state.json}:/beacon-live/weather-state.json:ro
+      - ${CORSEWIND_SSH_HOST_ROOT:-/home/home/.ssh}:/home/collector/.ssh:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "scripts/ml_dataset/check_data_collector_health.py",
+          "--status-file",
+          "/srv/data/corsewind/ml_dataset/collector_loop_status.json",
+          "--max-status-age-sec",
+          "1800",
+          "--require-last-cycle-ok"
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+    command:
+      - sh
+      - -c
+      - >-
+        mkdir -p /srv/data/corsewind/ml_dataset &&
+        sshfs "$${Z2_DATASET_SSH}" /srv/data/corsewind/ml_dataset
+        -o IdentityFile="$${Z2_DATASET_SSH_IDENTITY_FILE}"
+        -o StrictHostKeyChecking=accept-new
+        -o UserKnownHostsFile=/tmp/corsewind_z2_known_hosts
+        -o ServerAliveInterval=15
+        -o ServerAliveCountMax=3
+        -o reconnect &&
+        python scripts/ml_dataset/run_data_collector_loop.py
+          --interval-sec "$${ML_DATA_COLLECTOR_INTERVAL_SEC}"
+          --
+          --mode official
+          --ml-root /srv/data/corsewind/ml_dataset
+          --env-file /work/.env &
+        official_pid="$$!" &&
+        python scripts/ml_dataset/run_data_collector_loop.py
+          --interval-sec "$${ML_DATA_COLLECTOR_INTERVAL_SEC}"
+          --loop-status-file /srv/data/corsewind/ml_dataset/collector_remote_wind2d_loop_status.json
+          --collector-status-file /srv/data/corsewind/ml_dataset/collector_remote_wind2d_status.json
+          --collector-state-file /srv/data/corsewind/ml_dataset/collector_remote_wind2d_state.json
+          --
+          --mode bridge
+          --source remote_wind2d_model_layers
+          --ml-root /srv/data/corsewind/ml_dataset
+          --env-file /work/.env &
+        bridge_pid="$$!" &&
+        trap 'kill "$$official_pid" "$$bridge_pid" 2>/dev/null || true; wait "$$official_pid" "$$bridge_pid" 2>/dev/null || true' TERM INT &&
+        while true; do
+          if ! kill -0 "$$official_pid" 2>/dev/null; then
+            wait "$$official_pid";
+            status="$$?";
+            kill "$$bridge_pid" 2>/dev/null || true;
+            wait "$$bridge_pid" 2>/dev/null || true;
+            exit "$$status";
+          fi;
+          if ! kill -0 "$$bridge_pid" 2>/dev/null; then
+            wait "$$bridge_pid";
+            status="$$?";
+            kill "$$official_pid" 2>/dev/null || true;
+            wait "$$official_pid" 2>/dev/null || true;
+            exit "$$status";
+          fi;
+          sleep 30;
+        done

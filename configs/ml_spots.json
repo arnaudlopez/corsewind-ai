@@ -19,7 +19,8 @@
       "longitude": 9.64185,
       "source_resolution_minutes": 60,
       "use_for_ml": false,
-      "notes": "Marine/surf observation; useful as contextual feature, not direct wind target by default."
+      "notes": "Marine/surf observation; useful as contextual feature, not direct wind target by default.",
+      "score_track": "context"
     },
     {
       "spot_id": "bonifacio",
@@ -34,7 +35,8 @@
       "longitude": 8.878,
       "source_resolution_minutes": 60,
       "use_for_ml": false,
-      "notes": "Marine/surf observation; useful as contextual feature, not direct wind target by default."
+      "notes": "Marine/surf observation; useful as contextual feature, not direct wind target by default.",
+      "score_track": "context"
     },
     {
       "spot_id": "revellata",
@@ -49,7 +51,8 @@
       "longitude": 8.65,
       "source_resolution_minutes": 60,
       "use_for_ml": false,
-      "notes": "Marine/surf observation; useful as contextual feature, not direct wind target by default."
+      "notes": "Marine/surf observation; useful as contextual feature, not direct wind target by default.",
+      "score_track": "context"
     },
     {
       "spot_id": "ajaccio_buoy",
@@ -63,7 +66,8 @@
       "longitude": 7.58,
       "source_resolution_minutes": 60,
       "use_for_ml": false,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "balistra",
@@ -77,7 +81,8 @@
       "longitude": 9.22215,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "bonifacio_tramizzi",
@@ -91,7 +96,8 @@
       "longitude": 9.155,
       "source_resolution_minutes": 15,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "calvi_buoy",
@@ -105,7 +111,8 @@
       "longitude": 8.7,
       "source_resolution_minutes": 60,
       "use_for_ml": false,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "cap_corse",
@@ -119,7 +126,8 @@
       "longitude": 9.3595,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "figari_eole",
@@ -133,7 +141,8 @@
       "longitude": 9.06925,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "la_parata",
@@ -147,7 +156,8 @@
       "longitude": 8.618,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "la_tonnara",
@@ -161,7 +171,8 @@
       "longitude": 9.10517,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "lfkf",
@@ -175,7 +186,8 @@
       "longitude": 9.1,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "lfkj",
@@ -189,7 +201,8 @@
       "longitude": 8.802,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "lfks",
@@ -203,7 +216,8 @@
       "longitude": 9.4,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "lfvf",
@@ -217,7 +231,8 @@
       "longitude": 8.9225,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "lfvh",
@@ -231,7 +246,8 @@
       "longitude": 9.18,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "official"
     },
     {
       "spot_id": "mezzavia",
@@ -245,7 +261,8 @@
       "longitude": 8.787,
       "source_resolution_minutes": 15,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "owm-1202",
@@ -259,7 +276,8 @@
       "longitude": 8.618,
       "source_resolution_minutes": 15,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "piantarella",
@@ -273,7 +291,8 @@
       "longitude": 9.22097,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "porticcio",
@@ -287,7 +306,8 @@
       "longitude": 8.787,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "porticcio_haut",
@@ -301,7 +321,8 @@
       "longitude": 8.828,
       "source_resolution_minutes": 15,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "porto_polo",
@@ -315,7 +336,8 @@
       "longitude": 8.81832,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "propriano",
@@ -329,7 +351,8 @@
       "longitude": 8.899,
       "source_resolution_minutes": 15,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     },
     {
       "spot_id": "santa_manza",
@@ -343,7 +366,8 @@
       "longitude": 9.24333,
       "source_resolution_minutes": 6,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "product"
     },
     {
       "spot_id": "tizzano",
@@ -357,7 +381,8 @@
       "longitude": 8.852,
       "source_resolution_minutes": 15,
       "use_for_ml": true,
-      "notes": null
+      "notes": null,
+      "score_track": "context"
     }
   ]
 }

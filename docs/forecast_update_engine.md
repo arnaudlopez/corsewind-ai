@@ -332,6 +332,55 @@ eumetsat_land_surface_temperature
 eumetsat_global_instability_indices
 ```
 
+## Archive ML Operationnelle AROME / AROME-PI
+
+Le moteur doit conserver a chaque cycle une archive legere des runs
+operationnels publies en Wind2D et un echantillonnage aux spots ML.
+
+Cette archive est prioritaire pour le nowcasting ML : elle evite d'entrainer un
+correcteur sur un baseline re-servi par une autre source puis de l'appliquer a
+l'AROME/AROME-PI operationnel Meteo-France. Les fichiers raw lourds peuvent
+toujours etre nettoyes avec `--cleanup-raw`; l'archive ML conserve le produit
+normalise et ses valeurs aux spots.
+
+Activation recommandee, maintenant active par defaut :
+
+```bash
+ML_DATASET_ARCHIVE_ENABLED=true
+
+python3 scripts/run_forecast_update_engine.py \
+  --enable-ml-dataset-archive
+```
+
+Sorties :
+
+```text
+data/processed/ml_dataset/model_runs/<source>/run_<run_time>/
+data/processed/ml_dataset/model_samples/source=<source>/date=YYYY-MM-DD/samples.jsonl
+```
+
+Audit :
+
+```bash
+python3 scripts/ml_dataset/audit_operational_nwp_archive.py \
+  --ml-root data/processed/ml_dataset \
+  --output-json data/processed/ml_dataset/source_inventories/operational_nwp_archive_audit.json \
+  --output-markdown data/processed/ml_dataset/source_inventories/operational_nwp_archive_audit.md
+```
+
+Les champs extra ci-dessous restent optionnels et plus couteux. Ils ne doivent
+pas remplacer l'archive legere des runs operationnels.
+
+Sur `home101`, le chemin canonique de production est le collector dedie
+`corsewind-ml-data-collector`, pas un watcher externe du forecast-engine. La
+source collector `remote_wind2d_model_layers` relit les derniers JSON Wind2D du
+container `corsewind-forecast-engine`, archive les runs dans
+`model_runs/<source>/run_<run_time>/`, puis echantillonne les spots dans
+`model_samples/source=<source>/date=YYYY-MM-DD/samples.jsonl`. Le
+forecast-engine peut encore archiver localement en fallback, mais la collecte
+officielle doit passer par le collector afin d'ecrire sur le dataset z2 via le
+montage SSHFS.
+
 ## Collecte ML AROME / AROME-PI Champs Extra
 
 Les fichiers Wind2D AROME et AROME-PI restent centres sur le vent pour

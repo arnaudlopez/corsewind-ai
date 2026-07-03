@@ -54,6 +54,16 @@ def regime_metric(summary: dict[str, Any], target: str, rail: str, group: str, r
     return (((summary.get("regimes_ms") or {}).get(group) or {}).get(regime) or {}).get(f"{target}_{rail}") or {}
 
 
+def variance_ratio(item: dict[str, Any]) -> float | None:
+    value = item.get("variance_ratio")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def pass_fail(condition: bool, reason: str, evidence: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"pass": bool(condition), "reason": reason, "evidence": evidence or {}}
 
@@ -121,7 +131,24 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
 
+    min_variance_ratio = float(getattr(args, "min_variance_ratio", 0.0) or 0.0)
+    if min_variance_ratio > 0.0:
+        candidate_variance_ratio = variance_ratio(candidate_metric)
+        checks.append(
+            pass_fail(
+                candidate_variance_ratio is not None and candidate_variance_ratio >= min_variance_ratio,
+                f"{target}_{candidate} variance_ratio >= {min_variance_ratio:.3f}",
+                {
+                    "candidate": f"{target}_{candidate}",
+                    "candidate_variance_ratio": candidate_variance_ratio,
+                    "required_min_variance_ratio": min_variance_ratio,
+                    "metric": candidate_metric,
+                },
+            )
+        )
+
     threshold_prefixes = args.threshold or DEFAULT_THRESHOLDS[target]
+    max_false_alarm_ratio_regression = float(getattr(args, "max_false_alarm_ratio_regression", 0.03))
     for prefix in threshold_prefixes:
         candidate_threshold = threshold(summary, prefix, candidate)
         candidate_csi = candidate_threshold.get("csi")
@@ -172,6 +199,25 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                     },
                 )
             )
+            candidate_far = candidate_threshold.get("false_alarm_ratio")
+            baseline_far = baseline_threshold.get("false_alarm_ratio")
+            if candidate_far is not None or baseline_far is not None:
+                allowed_far = None if baseline_far is None else float(baseline_far) + max_false_alarm_ratio_regression
+                checks.append(
+                    pass_fail(
+                        candidate_far is not None and baseline_far is not None and float(candidate_far) <= float(allowed_far),
+                        (
+                            f"{prefix}_{candidate} false_alarm_ratio does not regress vs {prefix}_{baseline} "
+                            f"by more than {max_false_alarm_ratio_regression:.3f}"
+                        ),
+                        {
+                            "candidate_false_alarm_ratio": candidate_far,
+                            "baseline": f"{prefix}_{baseline}",
+                            "baseline_false_alarm_ratio": baseline_far,
+                            "allowed_max_false_alarm_ratio": allowed_far,
+                        },
+                    )
+                )
 
     if args.require_calm_regime:
         group, calm_regime = args.calm_regime or DEFAULT_CALM_REGIMES[target]
@@ -203,6 +249,35 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
                         },
                     )
                 )
+
+    require_variance_regime = bool(getattr(args, "require_variance_regime", False))
+    variance_regime = getattr(args, "variance_regime", None)
+    min_regime_variance_ratio = float(getattr(args, "min_regime_variance_ratio", 0.0) or 0.0)
+    if require_variance_regime:
+        if not variance_regime:
+            checks.append(pass_fail(False, "--require-variance-regime needs --variance-regime", {}))
+        else:
+            group, variance_regime_name = variance_regime
+            candidate_regime = regime_metric(summary, target, candidate, group, variance_regime_name)
+            candidate_regime_variance_ratio = variance_ratio(candidate_regime)
+            checks.append(
+                pass_fail(
+                    candidate_regime_variance_ratio is not None
+                    and candidate_regime_variance_ratio >= min_regime_variance_ratio,
+                    (
+                        f"{group}/{variance_regime_name}/{target}_{candidate} variance_ratio "
+                        f">= {min_regime_variance_ratio:.3f}"
+                    ),
+                    {
+                        "group": group,
+                        "regime": variance_regime_name,
+                        "candidate": f"{target}_{candidate}",
+                        "candidate_variance_ratio": candidate_regime_variance_ratio,
+                        "required_min_variance_ratio": min_regime_variance_ratio,
+                        "metric": candidate_regime,
+                    },
+                )
+            )
 
     passed = all(item["pass"] for item in checks)
     return {
@@ -272,9 +347,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-rows", type=int, default=500)
     parser.add_argument("--min-rmse-gain-ms", type=float, default=0.02)
     parser.add_argument("--max-csi-regression", type=float, default=0.02)
+    parser.add_argument("--max-false-alarm-ratio-regression", type=float, default=0.03)
+    parser.add_argument("--min-variance-ratio", type=float, default=0.0)
     parser.add_argument("--require-calm-regime", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--calm-regime", type=parse_calm_regime)
     parser.add_argument("--max-calm-rmse-regression-ms", type=float, default=0.02)
+    parser.add_argument("--require-variance-regime", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--variance-regime", type=parse_calm_regime)
+    parser.add_argument("--min-regime-variance-ratio", type=float, default=0.0)
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--output-markdown", type=Path)
     parser.add_argument("--fail-on-reject", action=argparse.BooleanOptionalAction, default=True)

@@ -7,6 +7,7 @@ import argparse
 import glob
 import json
 import math
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,6 +25,8 @@ DEFAULT_SPOTS = (
     "lfvf",
     "lfvh",
 )
+DEFAULT_REGISTRY = Path("configs/ml_spots.json")
+DEFAULT_SCORE_TRACK = "official"
 
 
 def import_dependencies() -> dict[str, Any]:
@@ -59,19 +62,60 @@ def parse_csv(value: str | None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def load_registry_spots(path: Path) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    spots = payload.get("spots") if isinstance(payload, dict) else payload
+    return spots if isinstance(spots, list) else []
+
+
+def spot_ids_for_track(registry: Path, score_track: str) -> list[str]:
+    if score_track == "legacy_default":
+        return list(DEFAULT_SPOTS)
+    spots = load_registry_spots(registry)
+    if not spots:
+        return list(DEFAULT_SPOTS) if score_track == DEFAULT_SCORE_TRACK else []
+    if score_track == "all":
+        return sorted(
+            str(spot["spot_id"])
+            for spot in spots
+            if spot.get("spot_id") and bool(spot.get("use_for_ml", False))
+        )
+    return sorted(
+        str(spot["spot_id"])
+        for spot in spots
+        if spot.get("spot_id")
+        and bool(spot.get("use_for_ml", False))
+        and str(spot.get("score_track") or "") == score_track
+    )
+
+
 def metrics(frame: Any, pred_col: str, actual_col: str) -> dict[str, Any]:
     values = frame[[pred_col, actual_col]].dropna()
     if values.empty:
         return {"n": 0}
     err = values[pred_col] - values[actual_col]
+    pred_var = float(values[pred_col].var(ddof=0))
+    actual_var = float(values[actual_col].var(ddof=0))
     return {
         "n": int(len(values)),
         "mae": float(err.abs().mean()),
         "rmse": float((err.pow(2).mean()) ** 0.5),
         "bias": float(err.mean()),
+        "prediction_std": float(values[pred_col].std(ddof=0)),
+        "observation_std": float(values[actual_col].std(ddof=0)),
+        "variance_ratio": None if actual_var <= 0.0 else pred_var / actual_var,
         "p50_abs_error": float(err.abs().quantile(0.50)),
         "p90_abs_error": float(err.abs().quantile(0.90)),
     }
+
+
+def metrics_or_empty(frame: Any, pred_col: str, actual_col: str) -> dict[str, Any]:
+    if pred_col not in frame.columns or actual_col not in frame.columns:
+        return {"n": 0}
+    return metrics(frame, pred_col, actual_col)
 
 
 def threshold_metrics(frame: Any, pred_col: str, actual_col: str, threshold: float) -> dict[str, Any]:
@@ -94,6 +138,8 @@ def threshold_metrics(frame: Any, pred_col: str, actual_col: str, threshold: flo
         "precision": None if tp + fp == 0 else tp / (tp + fp),
         "recall": None if tp + fn == 0 else tp / (tp + fn),
         "csi": None if tp + fp + fn == 0 else tp / (tp + fp + fn),
+        "false_alarm_ratio": None if tp + fp == 0 else fp / (tp + fp),
+        "false_alarm_rate": None if fp + tn == 0 else fp / (fp + tn),
     }
 
 
@@ -119,6 +165,10 @@ def build_threshold_summary(frame: Any) -> dict[str, Any]:
     gust_rails = {
         "ml": "champion_gust_kt",
         "raw": "raw_gust_kt",
+        "quantile_q50": "calibrated_gust_kt_q50",
+        "quantile_q60": "calibrated_gust_kt_q60",
+        "quantile_q75": "calibrated_gust_kt_q75",
+        "quantile_q90": "calibrated_gust_kt_q90",
         "high": "gust_high_kt",
         "strong_gated": "strong_gated_gust_kt",
         "shadow_router_v1": "shadow_router_v1_gust_kt",
@@ -255,6 +305,92 @@ def add_unit_columns(frame: Any, columns: list[str]) -> None:
             frame[column.replace("_ms", "_kt")] = frame[column] * KT_PER_MS
 
 
+def gust_quantile_kt_columns(frame: Any) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for column in sorted(frame.columns):
+        if column.startswith("calibrated_gust_kt_q"):
+            out[f"gust_quantile_{column.rsplit('_', 1)[-1]}_kt"] = column
+    return out
+
+
+def quantile_alpha_from_column(column: str) -> float | None:
+    suffix = column.rsplit("_", 1)[-1].lower()
+    match = re.fullmatch(r"q(\d+(?:p\d+)?)", suffix)
+    if not match:
+        return None
+    return float(match.group(1).replace("p", ".")) / 100.0
+
+
+def add_gust_quantile_metrics(item: dict[str, Any], group: Any) -> None:
+    for metric_key, column in gust_quantile_kt_columns(group).items():
+        item[metric_key] = metrics(group, column, "actual_gust_kt")
+
+
+def quantile_coverage_metrics(frame: Any, pred_col: str, actual_col: str = "actual_gust_kt") -> dict[str, Any]:
+    alpha = quantile_alpha_from_column(pred_col)
+    values = frame[[pred_col, actual_col]].dropna()
+    if values.empty:
+        return {"n": 0, "expected_coverage": alpha}
+    residual = values[actual_col] - values[pred_col]
+    coverage = float((residual <= THRESHOLD_EPSILON).mean())
+    return {
+        "n": int(len(values)),
+        "expected_coverage": alpha,
+        "empirical_coverage": coverage,
+        "coverage_error": None if alpha is None else coverage - alpha,
+        "mean_excess_when_missed_kt": None
+        if (residual > 0).sum() == 0
+        else float(residual[residual > 0].mean()),
+        "conformal_additive_offset_kt": None if alpha is None else float(residual.quantile(alpha)),
+    }
+
+
+def gust_quantile_coverage_for_frame(frame: Any) -> dict[str, Any]:
+    out = {}
+    for metric_key, column in gust_quantile_kt_columns(frame).items():
+        out[metric_key] = quantile_coverage_metrics(frame, column)
+    return out
+
+
+def grouped_gust_quantile_coverage(frame: Any, group_column: str) -> dict[str, Any]:
+    if frame.empty or group_column not in frame.columns:
+        return {}
+    return {
+        str(key): gust_quantile_coverage_for_frame(group)
+        for key, group in frame.groupby(group_column, dropna=False)
+    }
+
+
+def best_gust_quantile_threshold_rails(frame: Any) -> dict[str, Any]:
+    columns = gust_quantile_kt_columns(frame)
+    out: dict[str, Any] = {}
+    for level in (12, 15, 20, 25):
+        candidates = []
+        for metric_key, column in columns.items():
+            item = threshold_metrics_or_empty(frame, column, "actual_gust_kt", float(level))
+            candidates.append({"rail": metric_key, "column": column, **item})
+        valid = [item for item in candidates if item.get("csi") is not None]
+        best = max(valid, key=lambda item: float(item["csi"])) if valid else None
+        out[f"gust_{level}kt"] = {
+            "best": best,
+            "candidates": sorted(
+                candidates,
+                key=lambda item: -1.0 if item.get("csi") is None else float(item["csi"]),
+                reverse=True,
+            ),
+        }
+    return out
+
+
+def grouped_best_gust_quantile_threshold_rails(frame: Any, group_column: str) -> dict[str, Any]:
+    if frame.empty or group_column not in frame.columns:
+        return {}
+    return {
+        str(key): best_gust_quantile_threshold_rails(group)
+        for key, group in frame.groupby(group_column, dropna=False)
+    }
+
+
 def load_observations(paths: list[Path], spots: set[str], pd: Any) -> Any:
     rows = []
     source_priority = {
@@ -363,13 +499,14 @@ def grouped_metrics(frame: Any, group_column: str) -> dict[str, Any]:
     for key, group in frame.groupby(group_column, dropna=False):
         item = {
             "n": int(len(group)),
-            "wind_ml_kt": metrics(group, "champion_wind_mean_kt", "actual_wind_mean_kt"),
-            "wind_raw_kt": metrics(group, "raw_wind_mean_kt", "actual_wind_mean_kt"),
-            "gust_ml_kt": metrics(group, "champion_gust_kt", "actual_gust_kt"),
-            "gust_raw_kt": metrics(group, "raw_gust_kt", "actual_gust_kt"),
+            "wind_ml_kt": metrics_or_empty(group, "champion_wind_mean_kt", "actual_wind_mean_kt"),
+            "wind_raw_kt": metrics_or_empty(group, "raw_wind_mean_kt", "actual_wind_mean_kt"),
+            "gust_ml_kt": metrics_or_empty(group, "champion_gust_kt", "actual_gust_kt"),
+            "gust_raw_kt": metrics_or_empty(group, "raw_gust_kt", "actual_gust_kt"),
         }
         if "gust_high_kt" in group.columns:
             item["gust_high_kt"] = metrics(group, "gust_high_kt", "actual_gust_kt")
+        add_gust_quantile_metrics(item, group)
         if "strong_gated_wind_mean_kt" in group.columns:
             item["wind_strong_gated_kt"] = metrics(group, "strong_gated_wind_mean_kt", "actual_wind_mean_kt")
         if "strong_gated_gust_kt" in group.columns:
@@ -411,7 +548,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     pd = deps["pd"]
 
     predictions = pd.read_parquet(args.predictions_parquet)
-    spots = set(parse_csv(args.spots) or DEFAULT_SPOTS)
+    requested_spots = parse_csv(args.spots)
+    spots = set(requested_spots or spot_ids_for_track(args.registry, args.score_track))
+    if not spots:
+        raise SystemExit(f"No spots resolved for score track {args.score_track!r}.")
     predictions = predictions[predictions["spot_id"].astype(str).isin(spots)].copy()
     if predictions.empty:
         raise SystemExit("No prediction rows left after spot filtering.")
@@ -459,6 +599,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "local_fallback_guard_v1_gust_ms",
             "probability_event_guard_v1_gust_ms",
             "gust_recall_floor_guard_v1_gust_ms",
+            *[
+                column
+                for column in predictions.columns
+                if column.startswith("calibrated_gust_ms_q")
+            ],
             "actual_wind_mean_ms",
             "actual_gust_ms",
         ],
@@ -473,6 +618,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         else "6h+"
     )
     scored["target_hour_utc"] = scored["target_dt"].dt.hour
+    scored["issue_day_utc"] = pd.to_datetime(scored["issue_time_utc"], utc=True, errors="coerce").dt.strftime("%Y-%m-%d")
+    scored["spot_lead_bucket"] = scored["spot_id"].astype(str) + "|" + scored["lead_bucket"].astype(str)
     scored["actual_gust_regime_kt"] = scored["actual_gust_kt"].map(
         lambda value: ">=25kt" if value >= 25 else "20-25kt" if value >= 20 else "15-20kt" if value >= 15 else "<15kt"
     )
@@ -487,26 +634,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         if value >= 12
         else "<12kt"
     )
-    scored["raw_gust_regime_kt"] = scored["raw_gust_kt"].map(
-        lambda value: ">=25kt" if value >= 25 else "20-25kt" if value >= 20 else "15-20kt" if value >= 15 else "<15kt"
-    )
-    scored["raw_wind_regime_kt"] = scored["raw_wind_mean_kt"].map(
-        lambda value: ">=25kt"
-        if value >= 25
-        else "20-25kt"
-        if value >= 20
-        else "15-20kt"
-        if value >= 15
-        else "12-15kt"
-        if value >= 12
-        else "<12kt"
-    )
+    if "raw_gust_kt" in scored.columns:
+        scored["raw_gust_regime_kt"] = scored["raw_gust_kt"].map(
+            lambda value: ">=25kt" if value >= 25 else "20-25kt" if value >= 20 else "15-20kt" if value >= 15 else "<15kt"
+        )
+    if "raw_wind_mean_kt" in scored.columns:
+        scored["raw_wind_regime_kt"] = scored["raw_wind_mean_kt"].map(
+            lambda value: ">=25kt"
+            if value >= 25
+            else "20-25kt"
+            if value >= 20
+            else "15-20kt"
+            if value >= 15
+            else "12-15kt"
+            if value >= 12
+            else "<12kt"
+        )
 
     overall = {
-        "wind_ml_kt": metrics(scored, "champion_wind_mean_kt", "actual_wind_mean_kt"),
-        "wind_raw_kt": metrics(scored, "raw_wind_mean_kt", "actual_wind_mean_kt"),
-        "gust_ml_kt": metrics(scored, "champion_gust_kt", "actual_gust_kt"),
-        "gust_raw_kt": metrics(scored, "raw_gust_kt", "actual_gust_kt"),
+        "wind_ml_kt": metrics_or_empty(scored, "champion_wind_mean_kt", "actual_wind_mean_kt"),
+        "wind_raw_kt": metrics_or_empty(scored, "raw_wind_mean_kt", "actual_wind_mean_kt"),
+        "gust_ml_kt": metrics_or_empty(scored, "champion_gust_kt", "actual_gust_kt"),
+        "gust_raw_kt": metrics_or_empty(scored, "raw_gust_kt", "actual_gust_kt"),
     }
     if "guarded_foundation_wind_mean_kt" in scored.columns:
         overall["wind_shadow_kt"] = metrics(scored, "guarded_foundation_wind_mean_kt", "actual_wind_mean_kt")
@@ -514,6 +663,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         overall["gust_shadow_kt"] = metrics(scored, "guarded_foundation_gust_kt", "actual_gust_kt")
     if "gust_high_kt" in scored.columns:
         overall["gust_high_kt"] = metrics(scored, "gust_high_kt", "actual_gust_kt")
+    add_gust_quantile_metrics(overall, scored)
     if "strong_gated_wind_mean_kt" in scored.columns:
         overall["wind_strong_gated_kt"] = metrics(scored, "strong_gated_wind_mean_kt", "actual_wind_mean_kt")
     if "strong_gated_gust_kt" in scored.columns:
@@ -552,6 +702,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "generated_at_utc": utc_now(),
         "predictions_parquet": str(args.predictions_parquet),
         "observations_jsonl": [str(path) for path in observation_paths],
+        "score_track": args.score_track,
+        "registry": str(args.registry),
+        "explicit_spots": requested_spots,
         "joined_rows": int(len(scored)),
         "spot_count": int(scored["spot_id"].nunique()),
         "spots": sorted(scored["spot_id"].unique().tolist()),
@@ -562,6 +715,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "probability_heads": probability_summary(scored, deps),
         "alert_flags": alert_summary(scored),
         "thresholds": build_threshold_summary(scored),
+        "gust_quantile_coverage": {
+            "overall": gust_quantile_coverage_for_frame(scored),
+            "by_spot": grouped_gust_quantile_coverage(scored, "spot_id"),
+            "by_lead_bucket": grouped_gust_quantile_coverage(scored, "lead_bucket"),
+            "by_spot_lead_bucket": grouped_gust_quantile_coverage(scored, "spot_lead_bucket"),
+            "by_actual_gust_regime_kt": grouped_gust_quantile_coverage(scored, "actual_gust_regime_kt"),
+        },
+        "gust_quantile_best_threshold_rail": {
+            "overall": best_gust_quantile_threshold_rails(scored),
+            "by_issue_day_utc": grouped_best_gust_quantile_threshold_rails(scored, "issue_day_utc"),
+            "by_actual_gust_regime_kt": grouped_best_gust_quantile_threshold_rails(scored, "actual_gust_regime_kt"),
+        },
         "by_spot": grouped_metrics(scored, "spot_id"),
         "by_lead_bucket": grouped_metrics(scored, "lead_bucket"),
         "by_target_hour_utc": grouped_metrics(scored, "target_hour_utc"),
@@ -569,7 +734,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "by_actual_gust_regime_kt": grouped_metrics(scored, "actual_gust_regime_kt"),
         "by_raw_wind_regime_kt": grouped_metrics(scored, "raw_wind_regime_kt"),
         "by_raw_gust_regime_kt": grouped_metrics(scored, "raw_gust_regime_kt"),
-        "peak_gust_by_spot_kt": peak_summary(scored, "champion_gust_kt", "raw_gust_kt", "actual_gust_kt"),
+        "peak_gust_by_spot_kt": peak_summary(scored, "champion_gust_kt", "raw_gust_kt", "actual_gust_kt") if "champion_gust_kt" in scored.columns and "raw_gust_kt" in scored.columns else {},
+        "peak_gust_quantile_q50_by_spot_kt": peak_summary(scored, "calibrated_gust_kt_q50", "raw_gust_kt", "actual_gust_kt") if "calibrated_gust_kt_q50" in scored.columns else {},
+        "peak_gust_quantile_q60_by_spot_kt": peak_summary(scored, "calibrated_gust_kt_q60", "raw_gust_kt", "actual_gust_kt") if "calibrated_gust_kt_q60" in scored.columns else {},
+        "peak_gust_quantile_q75_by_spot_kt": peak_summary(scored, "calibrated_gust_kt_q75", "raw_gust_kt", "actual_gust_kt") if "calibrated_gust_kt_q75" in scored.columns else {},
+        "peak_gust_quantile_q90_by_spot_kt": peak_summary(scored, "calibrated_gust_kt_q90", "raw_gust_kt", "actual_gust_kt") if "calibrated_gust_kt_q90" in scored.columns else {},
         "peak_gust_high_by_spot_kt": peak_summary(scored, "gust_high_kt", "raw_gust_kt", "actual_gust_kt") if "gust_high_kt" in scored.columns else {},
         "peak_gust_strong_gated_by_spot_kt": peak_summary(scored, "strong_gated_gust_kt", "raw_gust_kt", "actual_gust_kt") if "strong_gated_gust_kt" in scored.columns else {},
         "peak_gust_shadow_router_v1_by_spot_kt": peak_summary(scored, "shadow_router_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "shadow_router_v1_gust_kt" in scored.columns else {},
@@ -579,7 +748,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "peak_gust_local_fallback_guard_v1_by_spot_kt": peak_summary(scored, "local_fallback_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "local_fallback_guard_v1_gust_kt" in scored.columns else {},
         "peak_gust_probability_event_guard_v1_by_spot_kt": peak_summary(scored, "probability_event_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "probability_event_guard_v1_gust_kt" in scored.columns else {},
         "peak_gust_recall_floor_guard_v1_by_spot_kt": peak_summary(scored, "gust_recall_floor_guard_v1_gust_kt", "raw_gust_kt", "actual_gust_kt") if "gust_recall_floor_guard_v1_gust_kt" in scored.columns else {},
-        "peak_wind_by_spot_kt": peak_summary(scored, "champion_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt"),
+        "peak_wind_by_spot_kt": peak_summary(scored, "champion_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "champion_wind_mean_kt" in scored.columns and "raw_wind_mean_kt" in scored.columns else {},
         "peak_wind_strong_gated_by_spot_kt": peak_summary(scored, "strong_gated_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "strong_gated_wind_mean_kt" in scored.columns else {},
         "peak_wind_shadow_router_v1_by_spot_kt": peak_summary(scored, "shadow_router_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "shadow_router_v1_wind_mean_kt" in scored.columns else {},
         "peak_wind_shadow_stacker_v1_by_spot_kt": peak_summary(scored, "shadow_stacker_v1_wind_mean_kt", "raw_wind_mean_kt", "actual_wind_mean_kt") if "shadow_stacker_v1_wind_mean_kt" in scored.columns else {},
@@ -602,6 +771,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--observations-jsonl", action="append", default=[], required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-scored-parquet", type=Path)
+    parser.add_argument("--registry", type=Path, default=DEFAULT_REGISTRY)
+    parser.add_argument(
+        "--score-track",
+        choices=["official", "product", "context", "all", "legacy_default"],
+        default=DEFAULT_SCORE_TRACK,
+        help="Spot scoring track from registry. Ignored when --spots is provided.",
+    )
     parser.add_argument("--spots", help="Comma-separated spot ids. Defaults to Meteo-France scored spots.")
     parser.add_argument("--target-start-utc")
     parser.add_argument("--target-end-utc")

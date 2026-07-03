@@ -2334,7 +2334,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cleanup-raw", action=argparse.BooleanOptionalAction, default=True, help="Delete raw weather downloads after derived Wind2D artifacts are published.")
     parser.add_argument("--ml-root", type=Path, default=DEFAULT_ML_ROOT, help="Root directory for ML dataset inputs and derived tables.")
     parser.add_argument("--ml-registry", type=Path, default=DEFAULT_ML_REGISTRY, help="ML spot registry JSON.")
-    parser.add_argument("--enable-ml-dataset-archive", action=argparse.BooleanOptionalAction, default=env_bool("ML_DATASET_ARCHIVE_ENABLED", False), help="Archive derived model-layer JSON snapshots and sample them at ML spots for dataset construction.")
+    parser.add_argument("--enable-ml-dataset-archive", action=argparse.BooleanOptionalAction, default=env_bool("ML_DATASET_ARCHIVE_ENABLED", True), help="Archive derived model-layer JSON snapshots and sample them at ML spots for dataset construction.")
     parser.add_argument("--ml-dataset-root", type=Path, default=DEFAULT_ML_DATASET_ROOT, help="Root directory for archived ML dataset model-run snapshots.")
     parser.add_argument("--ml-dataset-samples-root", type=Path, default=DEFAULT_ML_MODEL_SAMPLES_ROOT, help="Root directory for ML dataset model samples at spots.")
     parser.add_argument("--enable-ml-feature-store", action=argparse.BooleanOptionalAction, default=env_bool("ML_FEATURE_STORE_ENABLED", False), help="Rebuild the canonical 15-minute ML feature store at the end of each cycle.")

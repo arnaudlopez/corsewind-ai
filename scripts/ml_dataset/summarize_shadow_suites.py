@@ -27,6 +27,10 @@ METRIC_KEYS = {
     "wind_gust_floor_guard": ("shadow_router_v1", "overall_ms", "wind_gust_floor_guard"),
     "gust_raw": ("overall_ms", "gust_raw"),
     "gust_champion": ("overall_ms", "gust_champion"),
+    "gust_quantile_q50": ("overall_ms", "gust_quantile_q50"),
+    "gust_quantile_q60": ("overall_ms", "gust_quantile_q60"),
+    "gust_quantile_q75": ("overall_ms", "gust_quantile_q75"),
+    "gust_quantile_q90": ("overall_ms", "gust_quantile_q90"),
     "gust_high": ("overall_ms", "gust_high"),
     "gust_strong_gated": ("overall_ms", "gust_strong_gated"),
     "gust_router": ("shadow_router_v1", "overall_ms", "gust_router"),
@@ -54,6 +58,10 @@ def build_threshold_keys() -> dict[str, tuple[str, ...]]:
     gust_rails = {
         "raw": ("thresholds", "gust_{level}kt_raw"),
         "champion": ("thresholds", "gust_{level}kt_ml"),
+        "quantile_q50": ("thresholds", "gust_{level}kt_quantile_q50"),
+        "quantile_q60": ("thresholds", "gust_{level}kt_quantile_q60"),
+        "quantile_q75": ("thresholds", "gust_{level}kt_quantile_q75"),
+        "quantile_q90": ("thresholds", "gust_{level}kt_quantile_q90"),
         "high": ("thresholds", "gust_{level}kt_high"),
         "strong_gated": ("thresholds", "gust_{level}kt_strong_gated"),
         "router": ("shadow_router_v1", "thresholds", "gust_{level}kt_router"),
@@ -87,6 +95,10 @@ SCORE_METRIC_KEYS = {
     "wind_gust_floor_guard": "wind_gust_floor_guard_v1_kt",
     "gust_raw": "gust_raw_kt",
     "gust_champion": "gust_ml_kt",
+    "gust_quantile_q50": "gust_quantile_q50_kt",
+    "gust_quantile_q60": "gust_quantile_q60_kt",
+    "gust_quantile_q75": "gust_quantile_q75_kt",
+    "gust_quantile_q90": "gust_quantile_q90_kt",
     "gust_high": "gust_high_kt",
     "gust_strong_gated": "gust_strong_gated_kt",
     "gust_router": "gust_shadow_router_v1_kt",
@@ -125,6 +137,13 @@ def score_metric_ms(score: dict[str, Any], key: str) -> dict[str, Any]:
         "rmse_ms": None if metric.get("rmse") is None else float(metric["rmse"]) * MS_PER_KT,
         "mae_ms": None if metric.get("mae") is None else float(metric["mae"]) * MS_PER_KT,
         "bias_ms": None if metric.get("bias") is None else float(metric["bias"]) * MS_PER_KT,
+        "prediction_std_ms": None
+        if metric.get("prediction_std") is None
+        else float(metric["prediction_std"]) * MS_PER_KT,
+        "observation_std_ms": None
+        if metric.get("observation_std") is None
+        else float(metric["observation_std"]) * MS_PER_KT,
+        "variance_ratio": metric.get("variance_ratio"),
     }
 
 
@@ -137,6 +156,13 @@ def score_group_metric_ms(group: dict[str, Any], key: str) -> dict[str, Any]:
         "rmse_ms": None if metric.get("rmse") is None else float(metric["rmse"]) * MS_PER_KT,
         "mae_ms": None if metric.get("mae") is None else float(metric["mae"]) * MS_PER_KT,
         "bias_ms": None if metric.get("bias") is None else float(metric["bias"]) * MS_PER_KT,
+        "prediction_std_ms": None
+        if metric.get("prediction_std") is None
+        else float(metric["prediction_std"]) * MS_PER_KT,
+        "observation_std_ms": None
+        if metric.get("observation_std") is None
+        else float(metric["observation_std"]) * MS_PER_KT,
+        "variance_ratio": metric.get("variance_ratio"),
     }
 
 
@@ -175,6 +201,10 @@ def augment_shadow_from_score_file(case: dict[str, Any]) -> None:
             "wind_high_event_guard": score_metric_ms(score, "wind_high_event_guard_v1_kt"),
             "wind_gust_floor_guard": score_metric_ms(score, "wind_gust_floor_guard_v1_kt"),
             "gust_router": score_metric_ms(score, "gust_shadow_router_v1_kt"),
+            "gust_quantile_q50": score_metric_ms(score, "gust_quantile_q50_kt"),
+            "gust_quantile_q60": score_metric_ms(score, "gust_quantile_q60_kt"),
+            "gust_quantile_q75": score_metric_ms(score, "gust_quantile_q75_kt"),
+            "gust_quantile_q90": score_metric_ms(score, "gust_quantile_q90_kt"),
             "gust_stacker": score_metric_ms(score, "gust_shadow_stacker_v1_kt"),
             "gust_guarded_stacker": score_metric_ms(score, "gust_shadow_guarded_stacker_v1_kt"),
             "gust_threshold_guard": score_metric_ms(score, "gust_threshold_guard_v1_kt"),
@@ -193,6 +223,10 @@ def augment_shadow_from_score_file(case: dict[str, Any]) -> None:
     for level in GUST_THRESHOLDS_KT:
         case_thresholds[f"gust_{level}kt_raw"] = score_thresholds.get(f"gust_{level}kt_raw") or {}
         case_thresholds[f"gust_{level}kt_ml"] = score_thresholds.get(f"gust_{level}kt_ml") or {}
+        case_thresholds[f"gust_{level}kt_quantile_q50"] = score_thresholds.get(f"gust_{level}kt_quantile_q50") or {}
+        case_thresholds[f"gust_{level}kt_quantile_q60"] = score_thresholds.get(f"gust_{level}kt_quantile_q60") or {}
+        case_thresholds[f"gust_{level}kt_quantile_q75"] = score_thresholds.get(f"gust_{level}kt_quantile_q75") or {}
+        case_thresholds[f"gust_{level}kt_quantile_q90"] = score_thresholds.get(f"gust_{level}kt_quantile_q90") or {}
         case_thresholds[f"gust_{level}kt_high"] = score_thresholds.get(f"gust_{level}kt_high") or {}
         case_thresholds[f"gust_{level}kt_strong_gated"] = score_thresholds.get(f"gust_{level}kt_strong_gated") or {}
     for level in WIND_THRESHOLDS_KT:
@@ -235,13 +269,27 @@ def add_metric(acc: dict[str, dict[str, float]], name: str, metric: dict[str, An
     bias = metric.get("bias_ms")
     if n <= 0 or rmse is None:
         return
-    item = acc.setdefault(name, {"n": 0.0, "sse": 0.0, "abs_sum": 0.0, "err_sum": 0.0})
+    item = acc.setdefault(
+        name,
+        {
+            "n": 0.0,
+            "sse": 0.0,
+            "abs_sum": 0.0,
+            "err_sum": 0.0,
+            "pred_var_sum": 0.0,
+            "obs_var_sum": 0.0,
+        },
+    )
     item["n"] += n
     item["sse"] += float(rmse) ** 2 * n
     if mae is not None:
         item["abs_sum"] += float(mae) * n
     if bias is not None:
         item["err_sum"] += float(bias) * n
+    if metric.get("prediction_std_ms") is not None:
+        item["pred_var_sum"] += float(metric["prediction_std_ms"]) ** 2 * n
+    if metric.get("observation_std_ms") is not None:
+        item["obs_var_sum"] += float(metric["observation_std_ms"]) ** 2 * n
 
 
 def finish_metric(item: dict[str, float]) -> dict[str, Any]:
@@ -253,6 +301,11 @@ def finish_metric(item: dict[str, float]) -> dict[str, Any]:
         "rmse_ms": math.sqrt(item["sse"] / n),
         "mae_ms": item["abs_sum"] / n,
         "bias_ms": item["err_sum"] / n,
+        "prediction_std_ms": math.sqrt(item["pred_var_sum"] / n) if item.get("pred_var_sum") else None,
+        "observation_std_ms": math.sqrt(item["obs_var_sum"] / n) if item.get("obs_var_sum") else None,
+        "variance_ratio": None
+        if not item.get("obs_var_sum")
+        else item.get("pred_var_sum", 0.0) / item["obs_var_sum"],
     }
 
 
@@ -271,7 +324,16 @@ def finish_threshold(item: dict[str, int]) -> dict[str, Any]:
     precision = None if tp + fp == 0 else tp / (tp + fp)
     recall = None if tp + fn == 0 else tp / (tp + fn)
     csi = None if tp + fp + fn == 0 else tp / (tp + fp + fn)
-    return {**item, "precision": precision, "recall": recall, "csi": csi}
+    false_alarm_ratio = None if tp + fp == 0 else fp / (tp + fp)
+    false_alarm_rate = None if fp + item["tn"] == 0 else fp / (fp + item["tn"])
+    return {
+        **item,
+        "precision": precision,
+        "recall": recall,
+        "csi": csi,
+        "false_alarm_ratio": false_alarm_ratio,
+        "false_alarm_rate": false_alarm_rate,
+    }
 
 
 def add_score_regimes(
@@ -381,8 +443,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
         "",
         "## Overall RMSE",
         "",
-        "| Rail | n | RMSE m/s | MAE m/s | Bias m/s |",
-        "| --- | ---: | ---: | ---: | ---: |",
+        "| Rail | n | RMSE m/s | MAE m/s | Bias m/s | Variance ratio |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for name, metric in summary["overall_ms"].items():
         lines.append(
@@ -394,11 +456,18 @@ def render_markdown(summary: dict[str, Any]) -> str:
                     fmt(metric.get("rmse_ms")),
                     fmt(metric.get("mae_ms")),
                     fmt(metric.get("bias_ms")),
+                    fmt(metric.get("variance_ratio")),
                 ]
             )
             + " |"
         )
-    lines.extend(["", "## Threshold CSI", "", "| Rail | n | CSI | Precision | Recall | TP | FP | FN |", "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"])
+    lines.extend([
+        "",
+        "## Threshold CSI",
+        "",
+        "| Rail | n | CSI | Precision | Recall | FAR | TP | FP | FN |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ])
     for name, item in summary["thresholds"].items():
         lines.append(
             "| "
@@ -409,6 +478,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                     fmt(item.get("csi")),
                     fmt(item.get("precision")),
                     fmt(item.get("recall")),
+                    fmt(item.get("false_alarm_ratio")),
                     fmt(item.get("tp"), 0),
                     fmt(item.get("fp"), 0),
                     fmt(item.get("fn"), 0),
@@ -426,7 +496,8 @@ def render_markdown(summary: dict[str, Any]) -> str:
                 f"## {group_name} Regimes",
                 "",
                 "| Regime | Rail | n | RMSE m/s | MAE m/s | Bias m/s |",
-                "| --- | --- | ---: | ---: | ---: | ---: |",
+                "| Regime | Rail | n | RMSE m/s | MAE m/s | Bias m/s | Variance ratio |",
+                "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
             ]
         )
         for regime, rails in regimes[group_name].items():
@@ -441,6 +512,7 @@ def render_markdown(summary: dict[str, Any]) -> str:
                             fmt(metric.get("rmse_ms")),
                             fmt(metric.get("mae_ms")),
                             fmt(metric.get("bias_ms")),
+                            fmt(metric.get("variance_ratio")),
                         ]
                     )
                     + " |"

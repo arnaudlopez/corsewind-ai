@@ -72,15 +72,32 @@ def metric(prediction: Any, observation: Any, np: Any) -> dict[str, Any]:
     if len(prediction) == 0:
         return {"count": 0}
     errors = prediction - observation
+    prediction_variance = float(np.var(prediction)) if len(prediction) else math.nan
+    observation_variance = float(np.var(observation)) if len(observation) else math.nan
     return {
         "count": int(len(errors)),
         "mae": round(float(np.mean(np.abs(errors))), 6),
         "rmse": round(float(math.sqrt(float(np.mean(errors * errors)))), 6),
         "bias": round(float(np.mean(errors)), 6),
+        "prediction_std": round(float(np.std(prediction)), 6),
+        "observation_std": round(float(np.std(observation)), 6),
+        "variance_ratio": None
+        if not math.isfinite(observation_variance) or observation_variance <= 0.0
+        else round(prediction_variance / observation_variance, 6),
         "p50_abs_error": round(float(np.quantile(np.abs(errors), 0.50)), 6),
         "p90_abs_error": round(float(np.quantile(np.abs(errors), 0.90)), 6),
         "p95_abs_error": round(float(np.quantile(np.abs(errors), 0.95)), 6),
     }
+
+
+def pinball_loss(prediction: Any, observation: Any, alpha: float, np: Any) -> float | None:
+    valid = ~(np.isnan(prediction) | np.isnan(observation))
+    prediction = prediction[valid]
+    observation = observation[valid]
+    if len(prediction) == 0:
+        return None
+    error = observation - prediction
+    return round(float(np.mean(np.maximum(alpha * error, (alpha - 1.0) * error))), 6)
 
 
 def metric_frame(frame: Any, prediction_column: str, observation_column: str, np: Any) -> dict[str, Any]:
@@ -211,6 +228,8 @@ def make_preprocessor(deps: dict[str, Any], numeric_columns: list[str], categori
 
 
 def build_model(args: argparse.Namespace, deps: dict[str, Any]):
+    if args.objective == "quantile" and args.model_family == "extra_trees":
+        raise SystemExit("Quantile objective is not supported for --model-family extra_trees.")
     if args.model_family == "extra_trees":
         return deps["ExtraTreesRegressor"](
             n_estimators=args.max_iter,
@@ -222,6 +241,8 @@ def build_model(args: argparse.Namespace, deps: dict[str, Any]):
         if deps["LGBMRegressor"] is None:
             raise SystemExit("LightGBM is not installed.")
         return deps["LGBMRegressor"](
+            objective="quantile" if args.objective == "quantile" else "regression",
+            alpha=args.quantile_alpha,
             n_estimators=args.max_iter,
             learning_rate=args.learning_rate,
             num_leaves=args.max_leaf_nodes,
@@ -237,6 +258,8 @@ def build_model(args: argparse.Namespace, deps: dict[str, Any]):
             verbosity=-1,
         )
     return deps["HistGradientBoostingRegressor"](
+        loss="quantile" if args.objective == "quantile" else "squared_error",
+        quantile=args.quantile_alpha if args.objective == "quantile" else None,
         max_iter=args.max_iter,
         learning_rate=args.learning_rate,
         max_leaf_nodes=args.max_leaf_nodes,
@@ -374,6 +397,13 @@ def fit_predict_residuals(
     }
 
 
+def scale_metric(item: dict[str, Any], metric_name: str) -> float:
+    value = item.get(metric_name)
+    if value is None:
+        return float("inf")
+    return float(value)
+
+
 def select_correction_scale(
     calibration: Any,
     feature_columns: list[str],
@@ -429,8 +459,14 @@ def select_correction_scale(
             "scale": float(scale),
             **metric(pred.to_numpy(), validation[actual_column].astype(float).to_numpy(), np),
         }
+        item["pinball_loss"] = pinball_loss(
+            pred.to_numpy(),
+            validation[actual_column].astype(float).to_numpy(),
+            args.quantile_alpha,
+            np,
+        )
         metrics.append(item)
-        if best is None or float(item["rmse"]) < float(best["rmse"]):
+        if best is None or scale_metric(item, args.scale_selection_metric) < scale_metric(best, args.scale_selection_metric):
             best = item
     assert best is not None
     selected_group_scales: dict[str, Any] = {}
@@ -466,8 +502,14 @@ def select_correction_scale(
                     "scale": float(scale),
                     **metric(pred.to_numpy(), group[actual_column].astype(float).to_numpy(), np),
                 }
+                item["pinball_loss"] = pinball_loss(
+                    pred.to_numpy(),
+                    group[actual_column].astype(float).to_numpy(),
+                    args.quantile_alpha,
+                    np,
+                )
                 group_metrics.append(item)
-                if group_best is None or float(item["rmse"]) < float(group_best["rmse"]):
+                if group_best is None or scale_metric(item, args.scale_selection_metric) < scale_metric(group_best, args.scale_selection_metric):
                     group_best = item
             assert group_best is not None
             selected_group_scales[label] = {
@@ -486,6 +528,7 @@ def select_correction_scale(
         "validation_end_utc": args.scale_validation_end_utc,
         "group_summary": group_summary,
         "selected_scale": float(best["scale"]),
+        "scale_selection_metric": args.scale_selection_metric,
         "scale_by_fit_group": bool(args.scale_by_fit_group and group_columns),
         "selected_group_scales": selected_group_scales,
         "selected_validation_metric": best,
@@ -567,8 +610,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     target_config = TARGET_CONFIGS[args.target]
     actual_column = target_config["actual"]
     corrected_column = target_config["corrected"]
-    calibrated_column = target_config["calibrated"]
-    second_stage_column = target_config["predicted_second_stage"]
+    column_suffix = f"_{args.prediction_suffix}" if args.prediction_suffix else ""
+    calibrated_column = f"{target_config['calibrated']}{column_suffix}"
+    second_stage_column = f"{target_config['predicted_second_stage']}{column_suffix}"
     calibration = load_predictions(
         args.calibration_predictions,
         pd,
@@ -638,6 +682,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "base_prediction_column": corrected_column,
         "calibrated_prediction_column": calibrated_column,
         "model_family": args.model_family,
+        "objective": args.objective,
+        "quantile_alpha": args.quantile_alpha if args.objective == "quantile" else None,
+        "prediction_suffix": args.prediction_suffix,
         "threshold_rmse": args.threshold_rmse,
         "calibration_predictions": str(args.calibration_predictions),
         "evaluation_predictions": str(args.evaluation_predictions),
@@ -698,6 +745,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lead-minute", type=int, action="append", default=[15, 30, 45, 60])
     parser.add_argument("--target", choices=sorted(TARGET_CONFIGS), default="wind_mean")
     parser.add_argument("--model-family", choices=("hist_gradient_boosting", "extra_trees", "lightgbm"), default="hist_gradient_boosting")
+    parser.add_argument("--objective", choices=("squared_error", "quantile"), default="squared_error")
+    parser.add_argument("--quantile-alpha", type=float, default=0.9)
+    parser.add_argument(
+        "--prediction-suffix",
+        default="",
+        help="Append a suffix to output prediction columns, e.g. q90 creates calibrated_gust_ms_q90.",
+    )
     parser.add_argument("--max-iter", type=int, default=240)
     parser.add_argument("--learning-rate", type=float, default=0.04)
     parser.add_argument("--max-leaf-nodes", type=int, default=15)
@@ -713,6 +767,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--correction-scale", type=float, default=1.0)
     parser.add_argument("--scale-validation-start-utc")
     parser.add_argument("--scale-validation-end-utc")
+    parser.add_argument("--scale-selection-metric", choices=("rmse", "mae", "pinball_loss"), default="rmse")
     parser.add_argument("--scale-candidate", type=float, action="append", default=[])
     parser.add_argument("--max-categorical-cardinality", type=int, default=100)
     parser.add_argument(
@@ -737,6 +792,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if not 0.0 < args.quantile_alpha < 1.0:
+        raise SystemExit("--quantile-alpha must be between 0 and 1.")
+    if args.objective != "quantile" and args.scale_selection_metric == "pinball_loss":
+        raise SystemExit("--scale-selection-metric pinball_loss requires --objective quantile.")
     result = run(args)
     if args.output_json:
         args.output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -750,6 +809,8 @@ def main() -> None:
         "evaluation_rows": result["evaluation_row_count"],
         "feature_columns": result["feature_column_count"],
         "selected_scale": result["scale_selection"].get("selected_scale"),
+        "objective": result["objective"],
+        "quantile_alpha": result["quantile_alpha"],
         "base_rmse": result["base_metrics"].get("rmse"),
         "calibrated_rmse": result["calibrated_metrics"].get("rmse"),
         "rmse_gain_pct_vs_base": result["rmse_gain_pct_vs_base"],

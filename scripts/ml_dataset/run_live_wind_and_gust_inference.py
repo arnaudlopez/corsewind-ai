@@ -17,6 +17,7 @@ DEFAULT_WIND_BASE_RUN = DEFAULT_ML_ROOT / "benchmarks/tabular_lgbm_225k_prev_low
 DEFAULT_GUST_BASE_RUN = DEFAULT_ML_ROOT / "benchmarks/tabular_lgbm_225k_prev_lowmem_gust_from_wind_champion_recipe_2024_2025_to_2026_v1"
 DEFAULT_WIND_CALIBRATOR_RUN = DEFAULT_ML_ROOT / "benchmarks/prediction_residual_calibrator_2025h2_to_2026_extratrees_scale070_v1"
 DEFAULT_GUST_CALIBRATOR_RUN = DEFAULT_ML_ROOT / "benchmarks/prediction_residual_calibrator_2025h2_to_2026_extratrees_scale070_gust_from_wind_champion_recipe_v1"
+DEFAULT_GUST_QUANTILE_RUN = DEFAULT_ML_ROOT / "benchmarks/gust_quantile_p0_lgbm_pinball_2025h2_to_2026_v1"
 DEFAULT_GUST_PROBABILITY_RUN = DEFAULT_ML_ROOT / "benchmarks/gust_threshold_probability_extratrees_2024_2025_to_2026_v1"
 DEFAULT_GUST_ALERT_THRESHOLDS = DEFAULT_ML_ROOT / "benchmarks/gust_probability_alert_thresholds_hindcast_v1/gust_probability_alert_thresholds.json"
 DEFAULT_STRONG_SOFT_RUN = DEFAULT_ML_ROOT / "benchmarks/strong_wind_expert_lgbm_weighted_soft_12_15_20_25_v1"
@@ -333,6 +334,107 @@ def add_gust_probability_alerts(
     return status
 
 
+def add_gust_quantile_rails(
+    frame: Any,
+    *,
+    root: Path | None,
+    enabled: bool,
+    suffixes: list[str],
+    clip_correction_ms: float | None,
+    monotone_sort: bool,
+    deps: dict[str, Any],
+) -> dict[str, Any]:
+    joblib = deps["joblib"]
+    pd = deps["pd"]
+    status: dict[str, Any] = {
+        "enabled": bool(enabled),
+        "root": str(root) if root else None,
+        "suffixes": suffixes,
+        "monotone_sort": bool(monotone_sort),
+        "rails": {},
+        "monotone_crossing_rows_before_sort": 0,
+        "fallback_reason": None,
+    }
+    if not enabled:
+        status["fallback_reason"] = "disabled"
+        return status
+    if root is None or not root.exists():
+        status["fallback_reason"] = "missing_root"
+        return status
+    if "corrected_gust_ms" not in frame.columns:
+        status["fallback_reason"] = "missing_corrected_gust_ms"
+        return status
+    for suffix in suffixes:
+        safe_suffix = suffix.strip().lstrip("_")
+        if not safe_suffix:
+            continue
+        model_path = root / f"calibrator_{safe_suffix}.joblib"
+        results_path = root / f"results_{safe_suffix}.json"
+        output_ms = f"calibrated_gust_ms_{safe_suffix}"
+        second_stage_raw = f"predicted_second_stage_residual_gust_ms_{safe_suffix}_raw"
+        second_stage = f"predicted_second_stage_residual_gust_ms_{safe_suffix}"
+        if not model_path.exists():
+            status["rails"][safe_suffix] = {
+                "loaded": False,
+                "model_path": str(model_path),
+                "reason": "missing_model",
+            }
+            continue
+        model = joblib.load(model_path)
+        model_columns = required_pipeline_columns(model)
+        x_calibrator = frame.reindex(columns=model_columns) if model_columns else frame
+        raw_correction = pd.Series(model.predict(x_calibrator), index=frame.index).astype(float)
+        scale = infer_scale(results_path if results_path.exists() else None, 1.0)
+        correction = raw_correction * scale
+        if clip_correction_ms is not None:
+            correction = correction.clip(lower=-float(clip_correction_ms), upper=float(clip_correction_ms))
+        frame[second_stage_raw] = raw_correction
+        frame[second_stage] = correction
+        frame[output_ms] = pd.to_numeric(frame["corrected_gust_ms"], errors="coerce") + correction
+        frame[f"calibrated_gust_kt_{safe_suffix}"] = as_knots(frame[output_ms])
+        status["rails"][safe_suffix] = {
+            "loaded": True,
+            "model_path": str(model_path),
+            "results_path": str(results_path) if results_path.exists() else None,
+            "scale": scale,
+            "feature_column_count": len(model_columns),
+            "non_null_count": int(frame[output_ms].notna().sum()),
+            "output_ms": output_ms,
+            "output_kt": f"calibrated_gust_kt_{safe_suffix}",
+        }
+    if not any(item.get("loaded") for item in status["rails"].values()):
+        status["fallback_reason"] = "no_quantile_model_loaded"
+        return status
+    loaded_suffixes = [
+        suffix
+        for suffix in status["rails"]
+        if status["rails"][suffix].get("loaded") and f"calibrated_gust_ms_{suffix}" in frame.columns
+    ]
+    ordered_suffixes = sorted(loaded_suffixes, key=lambda suffix: (quantile_suffix_value(suffix), suffix))
+    if monotone_sort and len(ordered_suffixes) >= 2:
+        ms_columns = [f"calibrated_gust_ms_{suffix}" for suffix in ordered_suffixes]
+        kt_columns = [f"calibrated_gust_kt_{suffix}" for suffix in ordered_suffixes]
+        values = frame[ms_columns].apply(pd.to_numeric, errors="coerce")
+        valid = values.notna().all(axis=1)
+        crossings = (values.diff(axis=1).iloc[:, 1:] < 0).any(axis=1) & valid
+        status["monotone_crossing_rows_before_sort"] = int(crossings.sum())
+        sorted_values = values.copy()
+        if valid.any():
+            sorted_values.loc[valid, ms_columns] = deps["np"].sort(values.loc[valid, ms_columns].to_numpy(dtype=float), axis=1)
+        for column in ms_columns:
+            frame[column] = sorted_values[column]
+        for ms_column, kt_column in zip(ms_columns, kt_columns, strict=True):
+            frame[kt_column] = as_knots(frame[ms_column])
+    return status
+
+
+def quantile_suffix_value(suffix: str) -> float:
+    match = re.fullmatch(r"q(\d+(?:p\d+)?)", suffix.strip().lower())
+    if not match:
+        return math.inf
+    return float(match.group(1).replace("p", ".")) / 100.0
+
+
 def risk_weight(series: Any, *, start: float, full: float, maximum: float) -> Any:
     if full <= start:
         return series.astype(float) * 0.0
@@ -647,6 +749,14 @@ def predictions_json(frame: Any, target_summaries: list[dict[str, Any]], limit_r
             config["guarded_kt"],
         ])
     output_columns.extend([
+        "calibrated_gust_ms_q50",
+        "calibrated_gust_kt_q50",
+        "calibrated_gust_ms_q60",
+        "calibrated_gust_kt_q60",
+        "calibrated_gust_ms_q75",
+        "calibrated_gust_kt_q75",
+        "calibrated_gust_ms_q90",
+        "calibrated_gust_kt_q90",
         "gust_high_ms",
         "gust_high_kt",
         "gust_peak_guard_raw_gap_kt",
@@ -759,6 +869,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         threshold_25_width_kt=args.gust_peak_guard_prob25_width_kt,
         deps=deps,
     ) if "gust" in selected_targets else {"enabled": False, "fallback_reason": "gust_target_not_selected"}
+    gust_quantile_rails_status = add_gust_quantile_rails(
+        frame,
+        root=args.gust_quantile_calibrator_root,
+        enabled=args.gust_quantile_rails,
+        suffixes=args.gust_quantile_suffix,
+        clip_correction_ms=args.gust_quantile_clip_correction_ms,
+        monotone_sort=args.gust_quantile_monotone_sort,
+        deps=deps,
+    ) if "gust" in selected_targets else {"enabled": False, "fallback_reason": "gust_target_not_selected"}
     gust_probability_heads_status = add_gust_probability_heads(
         frame,
         model_root=args.gust_probability_model_root,
@@ -802,6 +921,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "gust_base_feature_columns_json": str(args.gust_base_feature_columns_json),
             "clip_correction_ms": args.clip_correction_ms,
             "gust_peak_guard": gust_peak_guard_status,
+            "gust_quantile_rails": gust_quantile_rails_status,
             "gust_probability_heads": gust_probability_heads_status,
             "gust_probability_alerts": gust_probability_alerts_status,
             "strong_wind_gated_blend": strong_wind_gated_blend_status,
@@ -842,6 +962,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gust-probability-model-root", type=Path, default=DEFAULT_GUST_PROBABILITY_RUN)
     parser.add_argument("--gust-alert-thresholds", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--gust-alert-thresholds-json", type=Path, default=DEFAULT_GUST_ALERT_THRESHOLDS)
+    parser.add_argument("--gust-quantile-rails", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--gust-quantile-calibrator-root", type=Path, default=DEFAULT_GUST_QUANTILE_RUN)
+    parser.add_argument("--gust-quantile-suffix", action="append", default=["q50", "q60", "q75", "q90"])
+    parser.add_argument("--gust-quantile-clip-correction-ms", type=float, default=5.0)
+    parser.add_argument("--gust-quantile-monotone-sort", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--strong-wind-gated-blend", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--strong-wind-soft-model-root", type=Path, default=DEFAULT_STRONG_SOFT_RUN)
     parser.add_argument("--strong-wind-aggressive-model-root", type=Path, default=DEFAULT_STRONG_AGGRESSIVE_RUN)

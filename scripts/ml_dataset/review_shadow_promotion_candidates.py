@@ -110,6 +110,29 @@ def failure_margin(check: dict[str, Any]) -> dict[str, Any]:
             "miss_by": candidate - allowed,
             "unit": "m/s",
         }
+    if evidence.get("candidate_variance_ratio") is not None and evidence.get("required_min_variance_ratio") is not None:
+        candidate = float(evidence["candidate_variance_ratio"])
+        required = float(evidence["required_min_variance_ratio"])
+        return {
+            "type": "variance_ratio_min",
+            "candidate": candidate,
+            "required": required,
+            "miss_by": required - candidate,
+            "unit": "variance ratio",
+        }
+    if (
+        evidence.get("candidate_false_alarm_ratio") is not None
+        and evidence.get("allowed_max_false_alarm_ratio") is not None
+    ):
+        candidate = float(evidence["candidate_false_alarm_ratio"])
+        allowed = float(evidence["allowed_max_false_alarm_ratio"])
+        return {
+            "type": "false_alarm_ratio_max",
+            "candidate": candidate,
+            "required": allowed,
+            "miss_by": candidate - allowed,
+            "unit": "false alarm ratio",
+        }
     return {}
 
 
@@ -169,9 +192,16 @@ def build_gate_args(args: argparse.Namespace, target: str, candidate: str) -> Na
         min_rows=args.min_rows,
         min_rmse_gain_ms=args.min_rmse_gain_ms,
         max_csi_regression=args.max_csi_regression,
+        max_false_alarm_ratio_regression=args.max_false_alarm_ratio_regression,
+        min_variance_ratio=args.wind_min_variance_ratio if target == "wind" else args.gust_min_variance_ratio,
         require_calm_regime=args.require_calm_regime,
         calm_regime=args.wind_calm_regime if target == "wind" else args.gust_calm_regime,
         max_calm_rmse_regression_ms=args.max_calm_rmse_regression_ms,
+        require_variance_regime=args.require_variance_regime,
+        variance_regime=args.wind_variance_regime if target == "wind" else args.gust_variance_regime,
+        min_regime_variance_ratio=args.wind_min_regime_variance_ratio
+        if target == "wind"
+        else args.gust_min_regime_variance_ratio,
         output_json=None,
         output_markdown=None,
         fail_on_reject=False,
@@ -215,6 +245,10 @@ def candidate_record(args: argparse.Namespace, summary: dict[str, Any], target: 
             "rmse_miss_total_ms": total_positive_margin(enriched_performance_failures, "rmse_max"),
             "csi_miss_total": total_positive_margin(enriched_performance_failures, "csi_min"),
             "calm_rmse_miss_total_ms": total_positive_margin(enriched_performance_failures, "calm_rmse_max"),
+            "variance_ratio_miss_total": total_positive_margin(enriched_performance_failures, "variance_ratio_min"),
+            "false_alarm_ratio_miss_total": total_positive_margin(
+                enriched_performance_failures, "false_alarm_ratio_max"
+            ),
         },
         "overall_ms": candidate_metric,
         "rmse_gain_vs_raw_ms": None
@@ -244,6 +278,8 @@ def sort_key(item: dict[str, Any]) -> tuple[int, int, float, float, int, float]:
         0 if item.get("passed") else 1,
         int(item.get("performance_failed_check_count") or 0),
         float(gaps.get("csi_miss_total") or 0.0),
+        float(gaps.get("false_alarm_ratio_miss_total") or 0.0),
+        float(gaps.get("variance_ratio_miss_total") or 0.0),
         float(gaps.get("rmse_miss_total_ms") or 0.0),
         int(item.get("global_failed_check_count") or 0),
         float("inf") if rmse is None else float(rmse),
@@ -400,10 +436,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-rows", type=int, default=500)
     parser.add_argument("--min-rmse-gain-ms", type=float, default=0.02)
     parser.add_argument("--max-csi-regression", type=float, default=0.02)
+    parser.add_argument("--max-false-alarm-ratio-regression", type=float, default=0.03)
+    parser.add_argument("--wind-min-variance-ratio", type=float, default=0.0)
+    parser.add_argument("--gust-min-variance-ratio", type=float, default=0.85)
     parser.add_argument("--require-calm-regime", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--wind-calm-regime", type=parse_calm_regime)
     parser.add_argument("--gust-calm-regime", type=parse_calm_regime)
     parser.add_argument("--max-calm-rmse-regression-ms", type=float, default=0.02)
+    parser.add_argument("--require-variance-regime", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--wind-variance-regime", type=parse_calm_regime)
+    parser.add_argument("--gust-variance-regime", type=parse_calm_regime)
+    parser.add_argument("--wind-min-regime-variance-ratio", type=float, default=0.0)
+    parser.add_argument("--gust-min-regime-variance-ratio", type=float, default=0.85)
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--output-markdown", type=Path)
     return parser.parse_args()
