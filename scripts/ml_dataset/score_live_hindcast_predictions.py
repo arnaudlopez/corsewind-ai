@@ -16,6 +16,8 @@ from typing import Any
 
 KT_PER_MS = 1.9438444924406
 THRESHOLD_EPSILON = 1e-9
+MAX_QC_WIND_KT = 80.0
+MAX_QC_GUST_KT = 110.0
 DEFAULT_SPOTS = (
     "cap_corse",
     "la_parata",
@@ -391,6 +393,77 @@ def grouped_best_gust_quantile_threshold_rails(frame: Any, group_column: str) ->
     }
 
 
+def numeric_stats(series: Any) -> dict[str, Any]:
+    values = series.dropna()
+    if values.empty:
+        return {"n": 0}
+    return {
+        "n": int(len(values)),
+        "mean": float(values.mean()),
+        "median": float(values.median()),
+        "p90": float(values.quantile(0.90)),
+        "max": float(values.max()),
+    }
+
+
+def observation_sensor_item(frame: Any) -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "n": int(len(frame)),
+        "spot_count": int(frame["spot_id"].nunique()) if "spot_id" in frame.columns else 0,
+        "obs_distance_minutes": numeric_stats(frame["obs_distance_minutes"]) if "obs_distance_minutes" in frame.columns else {"n": 0},
+        "actual_wind_mean_kt": numeric_stats(frame["actual_wind_mean_kt"]) if "actual_wind_mean_kt" in frame.columns else {"n": 0},
+        "actual_gust_kt": numeric_stats(frame["actual_gust_kt"]) if "actual_gust_kt" in frame.columns else {"n": 0},
+    }
+    if "actual_wind_mean_kt" in frame.columns and "actual_gust_kt" in frame.columns:
+        values = frame[["actual_wind_mean_kt", "actual_gust_kt"]].dropna()
+        item["gust_below_wind_rows"] = int((values["actual_gust_kt"] + THRESHOLD_EPSILON < values["actual_wind_mean_kt"]).sum())
+        item["wind_above_qc_limit_rows"] = int((values["actual_wind_mean_kt"] > MAX_QC_WIND_KT).sum())
+        item["gust_above_qc_limit_rows"] = int((values["actual_gust_kt"] > MAX_QC_GUST_KT).sum())
+    metric_specs = {
+        "wind_raw_kt": ("raw_wind_mean_kt", "actual_wind_mean_kt"),
+        "wind_ml_kt": ("champion_wind_mean_kt", "actual_wind_mean_kt"),
+        "gust_raw_kt": ("raw_gust_kt", "actual_gust_kt"),
+        "gust_ml_kt": ("champion_gust_kt", "actual_gust_kt"),
+        "gust_quantile_q50_kt": ("calibrated_gust_kt_q50", "actual_gust_kt"),
+        "gust_quantile_q60_kt": ("calibrated_gust_kt_q60", "actual_gust_kt"),
+        "gust_quantile_q75_kt": ("calibrated_gust_kt_q75", "actual_gust_kt"),
+        "gust_quantile_q90_kt": ("calibrated_gust_kt_q90", "actual_gust_kt"),
+    }
+    item["prediction_metrics"] = {
+        name: metrics(frame, pred_col, actual_col)
+        for name, (pred_col, actual_col) in metric_specs.items()
+        if pred_col in frame.columns and actual_col in frame.columns
+    }
+    return item
+
+
+def observation_quality_summary(frame: Any) -> dict[str, Any]:
+    if frame.empty:
+        return {}
+    out: dict[str, Any] = {"overall": observation_sensor_item(frame)}
+    group_specs = {
+        "by_source_project": ["observation_source_project"],
+        "by_source_dataset": ["observation_source_project", "observation_source_dataset"],
+        "by_sensor": [
+            "observation_source_project",
+            "observation_source_dataset",
+            "observation_station_id",
+            "spot_id",
+        ],
+    }
+    for key, columns in group_specs.items():
+        if any(column not in frame.columns for column in columns):
+            continue
+        groups = {}
+        for group_key, group in frame.groupby(columns, dropna=False):
+            if not isinstance(group_key, tuple):
+                group_key = (group_key,)
+            label = "|".join("" if value != value else str(value) for value in group_key)
+            groups[label] = observation_sensor_item(group)
+        out[key] = groups
+    return out
+
+
 def load_observations(paths: list[Path], spots: set[str], pd: Any) -> Any:
     rows = []
     source_priority = {
@@ -712,6 +785,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "target_end_utc": str(scored["target_time_utc"].max()),
         "tolerance_minutes": args.tolerance_minutes,
         "overall": overall,
+        "observation_qc": observation_quality_summary(scored),
         "probability_heads": probability_summary(scored, deps),
         "alert_flags": alert_summary(scored),
         "thresholds": build_threshold_summary(scored),
@@ -734,6 +808,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "by_actual_gust_regime_kt": grouped_metrics(scored, "actual_gust_regime_kt"),
         "by_raw_wind_regime_kt": grouped_metrics(scored, "raw_wind_regime_kt"),
         "by_raw_gust_regime_kt": grouped_metrics(scored, "raw_gust_regime_kt"),
+        "by_observation_source_dataset": grouped_metrics(scored, "observation_source_dataset"),
         "peak_gust_by_spot_kt": peak_summary(scored, "champion_gust_kt", "raw_gust_kt", "actual_gust_kt") if "champion_gust_kt" in scored.columns and "raw_gust_kt" in scored.columns else {},
         "peak_gust_quantile_q50_by_spot_kt": peak_summary(scored, "calibrated_gust_kt_q50", "raw_gust_kt", "actual_gust_kt") if "calibrated_gust_kt_q50" in scored.columns else {},
         "peak_gust_quantile_q60_by_spot_kt": peak_summary(scored, "calibrated_gust_kt_q60", "raw_gust_kt", "actual_gust_kt") if "calibrated_gust_kt_q60" in scored.columns else {},

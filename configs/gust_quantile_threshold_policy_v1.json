@@ -1,0 +1,100 @@
+{
+  "audit_json": "/srv/data/corsewind/ml_dataset/benchmarks/gust_quantile_p0_lgbm_pinball_2025h2_to_2026_v1/calibration_quantile_coverage_2025h2.json",
+  "coverage_overall": {
+    "q33": {
+      "conformal_additive_offset_kt": -0.04923193757456973,
+      "coverage_error": 0.013945963975983966,
+      "empirical_coverage": 0.343945963975984,
+      "expected_coverage": 0.33,
+      "n": 59960
+    },
+    "q40": {
+      "conformal_additive_offset_kt": -0.024300428099329287,
+      "coverage_error": 0.00790527018012005,
+      "empirical_coverage": 0.40790527018012007,
+      "expected_coverage": 0.4,
+      "n": 59960
+    },
+    "q50": {
+      "conformal_additive_offset_kt": -0.001214595207021496,
+      "coverage_error": 0.0004503002001333689,
+      "empirical_coverage": 0.5004503002001334,
+      "expected_coverage": 0.5,
+      "n": 59960
+    },
+    "q60": {
+      "conformal_additive_offset_kt": 0.043604117241241504,
+      "coverage_error": -0.013592394929953233,
+      "empirical_coverage": 0.5864076050700467,
+      "expected_coverage": 0.6,
+      "n": 59960
+    },
+    "q75": {
+      "conformal_additive_offset_kt": 0.13716436512522368,
+      "coverage_error": -0.029869913275517024,
+      "empirical_coverage": 0.720130086724483,
+      "expected_coverage": 0.75,
+      "n": 59960
+    },
+    "q90": {
+      "conformal_additive_offset_kt": 0.3380425497295806,
+      "coverage_error": -0.035623749166110774,
+      "empirical_coverage": 0.8643762508338892,
+      "expected_coverage": 0.9,
+      "n": 59960
+    }
+  },
+  "format": "corsewind.gust_quantile_threshold_policy.v1",
+  "max_false_alarm_ratio": 0.65,
+  "selection_source": "2025h2 calibration predictions; saved quantile calibrators applied without retraining",
+  "thresholds_kt": {
+    "12": {
+      "alpha": 0.6,
+      "column_ms": "calibrated_gust_ms_q60",
+      "csi": 0.7499696023993839,
+      "false_alarm_ratio": 0.17119054017737168,
+      "fn": 2347,
+      "fp": 3822,
+      "precision": 0.8288094598226283,
+      "rail": "q60",
+      "recall": 0.8874394513452593,
+      "tp": 18504
+    },
+    "15": {
+      "alpha": 0.75,
+      "column_ms": "calibrated_gust_ms_q75",
+      "csi": 0.7333367646301919,
+      "false_alarm_ratio": 0.1848970251716247,
+      "fn": 1949,
+      "fp": 3232,
+      "precision": 0.8151029748283752,
+      "rail": "q75",
+      "recall": 0.8796690745199728,
+      "tp": 14248
+    },
+    "20": {
+      "alpha": 0.6,
+      "column_ms": "calibrated_gust_ms_q60",
+      "csi": 0.6987146529562982,
+      "false_alarm_ratio": 0.15358744394618834,
+      "fn": 1697,
+      "fp": 1233,
+      "precision": 0.8464125560538116,
+      "rail": "q60",
+      "recall": 0.8001648610456901,
+      "tp": 6795
+    },
+    "25": {
+      "alpha": 0.6,
+      "column_ms": "calibrated_gust_ms_q60",
+      "csi": 0.6004489337822672,
+      "false_alarm_ratio": 0.24817313097245644,
+      "fn": 897,
+      "fp": 883,
+      "precision": 0.7518268690275436,
+      "rail": "q60",
+      "recall": 0.7488801791713325,
+      "tp": 2675
+    }
+  }
+}
