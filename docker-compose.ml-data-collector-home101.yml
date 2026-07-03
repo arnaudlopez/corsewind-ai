@@ -31,7 +31,7 @@ services:
       ML_REMOTE_MODEL_CONTAINER_SSH: ${ML_REMOTE_MODEL_CONTAINER_SSH:-home@192.168.1.101:docker://corsewind-forecast-engine}
       ML_REMOTE_MODEL_SSH_IDENTITY_FILE: ${ML_REMOTE_MODEL_SSH_IDENTITY_FILE:-/home/collector/.ssh/claude_key}
     volumes:
-      - ${BEACON_LIVE_WEATHER_STATE_HOST_PATH:-/var/lib/docker/volumes/beacon-live_weather-data/_data/weather-state.json}:/beacon-live/weather-state.json:ro
+      - ${BEACON_LIVE_WEATHER_STATE_HOST_DIR:-/var/lib/docker/volumes/beacon-live_weather-data/_data}:/beacon-live:ro
       - ${CORSEWIND_SSH_HOST_ROOT:-/home/home/.ssh}:/home/collector/.ssh:ro
     healthcheck:
       test:
