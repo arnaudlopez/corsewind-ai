@@ -543,13 +543,22 @@ def peak_summary(frame: Any, pred_col: str, raw_col: str, actual_col: str) -> di
     if frame.empty:
         return {}
     out = {}
+
+    def idxmax_non_null(group: Any, column: str) -> Any:
+        if column not in group:
+            return None
+        values = group[column].dropna()
+        if values.empty:
+            return None
+        return values.idxmax()
+
     for spot_id, group in frame.groupby("spot_id"):
         group = group.dropna(subset=[actual_col])
         if group.empty:
             continue
         actual_idx = group[actual_col].idxmax()
-        pred_idx = group[pred_col].idxmax() if pred_col in group else None
-        raw_idx = group[raw_col].idxmax() if raw_col in group else None
+        pred_idx = idxmax_non_null(group, pred_col)
+        raw_idx = idxmax_non_null(group, raw_col)
         out[str(spot_id)] = {
             "actual_peak": float(group.loc[actual_idx, actual_col]),
             "actual_peak_time_utc": str(group.loc[actual_idx, "target_time_utc"]),
