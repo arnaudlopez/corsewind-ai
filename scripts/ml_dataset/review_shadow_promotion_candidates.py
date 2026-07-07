@@ -43,6 +43,8 @@ GLOBAL_CHECK_PREFIXES = (
     "case_count >=",
     "shadow_case_count >=",
     "joined_rows >=",
+    "target_baseline_coverage >=",
+    "same_key_baseline_coverage >=",
 )
 
 
@@ -158,6 +160,25 @@ def total_positive_margin(checks: list[dict[str, Any]], margin_type: str) -> flo
 
 def evidence_progress(args: argparse.Namespace, summary: dict[str, Any]) -> dict[str, Any]:
     days = gate.issue_days(summary)
+    baseline_coverage = summary.get("baseline_coverage") or {}
+    baseline_coverage_targets: dict[str, dict[str, Any]] = {}
+    baseline_coverage_ready = True
+    for target in ("wind", "gust"):
+        item = baseline_coverage.get(target) or {}
+        target_pass = bool(item.get("pass", True))
+        baseline_coverage_targets[target] = {
+            "pass": target_pass,
+            "failing_candidates": item.get("failing_candidates") or [],
+            "baseline_counts": item.get("baseline_counts") or {},
+        }
+        if not target_pass:
+            baseline_coverage_ready = False
+    base_ready = (
+        len(days) >= args.min_days
+        and int(summary.get("case_count") or 0) >= args.min_cases
+        and int(summary.get("shadow_case_count") or 0) >= args.min_shadow_cases
+        and int(summary.get("joined_rows") or 0) >= args.min_rows
+    )
     return {
         "issue_days": sorted(days),
         "actual_days": len(days),
@@ -168,12 +189,9 @@ def evidence_progress(args: argparse.Namespace, summary: dict[str, Any]) -> dict
         "required_shadow_cases": args.min_shadow_cases,
         "joined_rows": int(summary.get("joined_rows") or 0),
         "required_rows": args.min_rows,
-        "ready": (
-            len(days) >= args.min_days
-            and int(summary.get("case_count") or 0) >= args.min_cases
-            and int(summary.get("shadow_case_count") or 0) >= args.min_shadow_cases
-            and int(summary.get("joined_rows") or 0) >= args.min_rows
-        ),
+        "baseline_coverage_ready": baseline_coverage_ready,
+        "baseline_coverage": baseline_coverage_targets,
+        "ready": base_ready and baseline_coverage_ready,
     }
 
 
@@ -191,6 +209,8 @@ def build_gate_args(args: argparse.Namespace, target: str, candidate: str) -> Na
         min_shadow_cases=args.min_shadow_cases,
         min_rows=args.min_rows,
         min_rmse_gain_ms=args.min_rmse_gain_ms,
+        min_target_baseline_coverage_ratio=args.min_target_baseline_coverage_ratio,
+        min_baseline_coverage_ratio=args.min_baseline_coverage_ratio,
         max_csi_regression=args.max_csi_regression,
         max_false_alarm_ratio_regression=args.max_false_alarm_ratio_regression,
         min_variance_ratio=args.wind_min_variance_ratio if target == "wind" else args.gust_min_variance_ratio,
@@ -355,6 +375,7 @@ def render_markdown(result: dict[str, Any]) -> str:
             f"- cases: `{evidence.get('case_count')}/{evidence.get('required_cases')}`",
             f"- shadow cases: `{evidence.get('shadow_case_count')}/{evidence.get('required_shadow_cases')}`",
             f"- rows: `{evidence.get('joined_rows')}/{evidence.get('required_rows')}`",
+            f"- baseline coverage ready: `{evidence.get('baseline_coverage_ready')}`",
             "",
         ]
     )
@@ -435,6 +456,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-shadow-cases", type=int, default=6)
     parser.add_argument("--min-rows", type=int, default=500)
     parser.add_argument("--min-rmse-gain-ms", type=float, default=0.02)
+    parser.add_argument("--min-target-baseline-coverage-ratio", type=float, default=1.0)
+    parser.add_argument("--min-baseline-coverage-ratio", type=float, default=1.0)
     parser.add_argument("--max-csi-regression", type=float, default=0.02)
     parser.add_argument("--max-false-alarm-ratio-regression", type=float, default=0.03)
     parser.add_argument("--wind-min-variance-ratio", type=float, default=0.0)

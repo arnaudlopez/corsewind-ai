@@ -72,14 +72,14 @@ def blocker_type(best: dict[str, Any] | None, evidence_ready: bool) -> str:
         return "none"
     performance_failures = int(best.get("performance_failed_check_count") or 0)
     global_failures = int(best.get("global_failed_check_count") or 0)
+    if global_failures > 0:
+        return "global_gate"
     if not evidence_ready and performance_failures == 0:
         return "evidence_only"
     if not evidence_ready and performance_failures > 0:
         return "evidence_and_performance"
     if evidence_ready and performance_failures > 0:
         return "performance"
-    if global_failures > 0:
-        return "global_gate"
     return "unknown"
 
 

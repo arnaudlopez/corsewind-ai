@@ -110,6 +110,35 @@ SCORE_METRIC_KEYS = {
     "gust_recall_floor_guard": "gust_recall_floor_guard_v1_kt",
 }
 
+BASELINE_RAILS = ("raw", "champion")
+
+CANDIDATE_RAILS = {
+    "wind": (
+        "strong_gated",
+        "router",
+        "stacker",
+        "guarded_stacker",
+        "threshold_guard",
+        "high_event_guard",
+        "gust_floor_guard",
+    ),
+    "gust": (
+        "quantile_q50",
+        "quantile_q60",
+        "quantile_q75",
+        "quantile_q90",
+        "high",
+        "strong_gated",
+        "router",
+        "stacker",
+        "guarded_stacker",
+        "threshold_guard",
+        "local_fallback_guard",
+        "probability_event_guard",
+        "recall_floor_guard",
+    ),
+}
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -359,6 +388,56 @@ def finish_regimes(acc: dict[str, dict[str, dict[str, dict[str, float]]]]) -> di
     return out
 
 
+def metric_n(overall: dict[str, Any], target: str, rail: str) -> int:
+    metric = overall.get(f"{target}_{rail}") or {}
+    return int(metric.get("n") or 0)
+
+
+def baseline_coverage_summary(overall: dict[str, Any]) -> dict[str, Any]:
+    by_target: dict[str, Any] = {}
+    for target, candidates in CANDIDATE_RAILS.items():
+        baseline_counts = {
+            baseline: metric_n(overall, target, baseline)
+            for baseline in BASELINE_RAILS
+        }
+        candidate_items = {}
+        failing_candidates = []
+        for candidate in candidates:
+            candidate_count = metric_n(overall, target, candidate)
+            if candidate_count <= 0:
+                continue
+            baselines = {}
+            pass_candidate = True
+            for baseline, baseline_count in baseline_counts.items():
+                missing_rows = max(0, candidate_count - baseline_count)
+                coverage_ratio = None if candidate_count <= 0 else baseline_count / candidate_count
+                baseline_pass = baseline_count >= candidate_count
+                if not baseline_pass:
+                    pass_candidate = False
+                baselines[baseline] = {
+                    "baseline_n": baseline_count,
+                    "candidate_n": candidate_count,
+                    "coverage_ratio": coverage_ratio,
+                    "missing_rows_vs_candidate": missing_rows,
+                    "pass": baseline_pass,
+                }
+            candidate_items[candidate] = {
+                "candidate_n": candidate_count,
+                "baselines": baselines,
+                "pass": pass_candidate,
+            }
+            if not pass_candidate:
+                failing_candidates.append(candidate)
+        by_target[target] = {
+            "required_baselines": list(BASELINE_RAILS),
+            "baseline_counts": baseline_counts,
+            "candidates": candidate_items,
+            "failing_candidates": failing_candidates,
+            "pass": not failing_candidates,
+        }
+    return by_target
+
+
 def load_cases(paths: list[Path]) -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
     for path in paths:
@@ -418,6 +497,7 @@ def aggregate(paths: list[Path]) -> dict[str, Any]:
         "joined_rows": sum(int(case.get("joined_rows") or 0) for case in cases),
         "cases": case_rows,
         "overall_ms": overall,
+        "baseline_coverage": baseline_coverage_summary(overall),
         "thresholds": thresholds,
         "regimes_ms": finish_regimes(regime_acc),
     }
@@ -461,6 +541,34 @@ def render_markdown(summary: dict[str, Any]) -> str:
             )
             + " |"
         )
+    baseline_coverage = summary.get("baseline_coverage") or {}
+    if baseline_coverage:
+        lines.extend(
+            [
+                "",
+                "## Baseline Coverage",
+                "",
+                "| Target | Candidate | Candidate n | Raw n | Champion n | Pass |",
+                "| --- | --- | ---: | ---: | ---: | --- |",
+            ]
+        )
+        for target, target_item in baseline_coverage.items():
+            for candidate, item in (target_item.get("candidates") or {}).items():
+                baselines = item.get("baselines") or {}
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            f"`{target}`",
+                            f"`{candidate}`",
+                            fmt(item.get("candidate_n"), 0),
+                            fmt((baselines.get("raw") or {}).get("baseline_n"), 0),
+                            fmt((baselines.get("champion") or {}).get("baseline_n"), 0),
+                            f"`{item.get('pass')}`",
+                        ]
+                    )
+                    + " |"
+                )
     lines.extend([
         "",
         "## Threshold CSI",

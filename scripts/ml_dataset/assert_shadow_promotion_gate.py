@@ -42,6 +42,14 @@ def metric(summary: dict[str, Any], target: str, rail: str) -> dict[str, Any]:
     return (summary.get("overall_ms") or {}).get(f"{target}_{rail}") or {}
 
 
+def baseline_coverage(summary: dict[str, Any], target: str, candidate: str) -> dict[str, Any]:
+    return (
+        ((summary.get("baseline_coverage") or {}).get(target) or {})
+        .get("candidates", {})
+        .get(candidate, {})
+    )
+
+
 def threshold(summary: dict[str, Any], prefix: str, rail: str) -> dict[str, Any]:
     return (summary.get("thresholds") or {}).get(f"{prefix}_{rail}") or {}
 
@@ -109,6 +117,68 @@ def evaluate(args: argparse.Namespace) -> dict[str, Any]:
             bool(candidate_metric) and candidate_metric.get("rmse_ms") is not None,
             "candidate overall metric exists",
             {"candidate": f"{target}_{candidate}", "metric": candidate_metric},
+        )
+    )
+    min_target_baseline_coverage_ratio = float(getattr(args, "min_target_baseline_coverage_ratio", 1.0))
+    joined_rows = int(summary.get("joined_rows") or 0)
+    target_coverage_failures = []
+    for baseline in args.baseline:
+        baseline_metric = metric(summary, target, baseline)
+        baseline_n = int(baseline_metric.get("n") or 0)
+        ratio = None if joined_rows <= 0 else baseline_n / joined_rows
+        if joined_rows > 0 and (ratio is None or ratio < min_target_baseline_coverage_ratio):
+            target_coverage_failures.append(
+                {
+                    "baseline": f"{target}_{baseline}",
+                    "baseline_n": baseline_n,
+                    "joined_rows": joined_rows,
+                    "coverage_ratio": ratio,
+                    "required_min_coverage_ratio": min_target_baseline_coverage_ratio,
+                    "missing_rows_vs_joined_rows": max(0, joined_rows - baseline_n),
+                }
+            )
+    checks.append(
+        pass_fail(
+            not target_coverage_failures,
+            f"target_baseline_coverage >= {min_target_baseline_coverage_ratio:.3f}",
+            {
+                "target": target,
+                "joined_rows": joined_rows,
+                "failures": target_coverage_failures,
+            },
+        )
+    )
+
+    min_baseline_coverage_ratio = float(getattr(args, "min_baseline_coverage_ratio", 1.0))
+    coverage = baseline_coverage(summary, target, candidate)
+    coverage_baselines = coverage.get("baselines") or {}
+    coverage_failures = []
+    for baseline in args.baseline:
+        item = coverage_baselines.get(baseline) or {}
+        candidate_n = int(item.get("candidate_n") or coverage.get("candidate_n") or 0)
+        baseline_n = int(item.get("baseline_n") or 0)
+        ratio = None if candidate_n <= 0 else baseline_n / candidate_n
+        if candidate_n > 0 and (ratio is None or ratio < min_baseline_coverage_ratio):
+            coverage_failures.append(
+                {
+                    "baseline": f"{target}_{baseline}",
+                    "candidate": f"{target}_{candidate}",
+                    "candidate_n": candidate_n,
+                    "baseline_n": baseline_n,
+                    "coverage_ratio": ratio,
+                    "required_min_coverage_ratio": min_baseline_coverage_ratio,
+                    "missing_rows_vs_candidate": max(0, candidate_n - baseline_n),
+                }
+            )
+    checks.append(
+        pass_fail(
+            not coverage_failures,
+            f"same_key_baseline_coverage >= {min_baseline_coverage_ratio:.3f}",
+            {
+                "candidate": f"{target}_{candidate}",
+                "coverage": coverage,
+                "failures": coverage_failures,
+            },
         )
     )
 
@@ -346,6 +416,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-shadow-cases", type=int, default=6)
     parser.add_argument("--min-rows", type=int, default=500)
     parser.add_argument("--min-rmse-gain-ms", type=float, default=0.02)
+    parser.add_argument("--min-target-baseline-coverage-ratio", type=float, default=1.0)
+    parser.add_argument("--min-baseline-coverage-ratio", type=float, default=1.0)
     parser.add_argument("--max-csi-regression", type=float, default=0.02)
     parser.add_argument("--max-false-alarm-ratio-regression", type=float, default=0.03)
     parser.add_argument("--min-variance-ratio", type=float, default=0.0)
