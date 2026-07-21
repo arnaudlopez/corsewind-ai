@@ -527,6 +527,7 @@ Configuration par defaut :
 - AROME principal : polling toutes les 15 minutes ;
 - AROME-PI : polling toutes les 5 minutes quand frais, puis toutes les 60 secondes si le dernier run vu a plus de 15 minutes ;
 - MOLOCH et ICON-2I : polling toutes les 30 minutes lorsqu'ils sont actives ;
+- limite d'execution d'un traitement MOLOCH : 60 minutes par defaut (`MOLOCH_COMMAND_TIMEOUT_SEC=3600`) ;
 - backoff par source apres erreur : 5 minutes, puis exponentiel jusqu'a 30 minutes ;
 - lead hours AROME modele : `H+0..H+48` par defaut ;
 - AROME-PI : prochaines 24 h au pas 15 minutes ;

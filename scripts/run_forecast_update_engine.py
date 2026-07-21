@@ -2416,7 +2416,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--moloch-command-timeout-sec",
         type=int,
-        default=int(os.getenv("MOLOCH_COMMAND_TIMEOUT_SEC", "1800")),
+        default=int(os.getenv("MOLOCH_COMMAND_TIMEOUT_SEC", "3600")),
         help="Maximum MOLOCH builder runtime before the cycle keeps the previous layer.",
     )
     parser.add_argument("--moloch-skip-if-missing", action=argparse.BooleanOptionalAction, default=True)
